@@ -14,6 +14,20 @@ import { Controller } from '../game/systems/PlayerController';
 import { Vector2 } from '../game/systems/Vector';
 
 
+// TODO:
+// When using the previous input, add the input to a stack. If a player input
+// is then recieved, check the input at the top of the stack. If it matches the incoming input,
+// we've essentially already processed this input, so we can ignore it and pop the stack.
+
+// Problem: Server might use previous input but rather then there being delayed
+// input, the client simply stopped sending input. In this siatuation, we can either
+// 1. Simply teleport the player to the overcorrected server position
+// 2. Keep track of the simulated inputs and undo them once the stop input is received (0, 0). =
+//    This would make the server position snap back to the client positon. But the client would probably also snap.
+//    Any inputs that were accurately predicted can be kept. For example,
+//    server predicts 5 left inputs. The client then send 3 left inputs, then a stop. 
+//    The 3 left inputs can be kept, with the 2 last ones being undone on the server in a single tick.
+//    This will avoid the client snapping back to the server position.
 type Region = 'NA' | 'EU' | 'ASIA' | 'GLOBAL';
 
 
@@ -219,9 +233,21 @@ export class Match {
           numIntegrations = max; // No more inputs to process
           const lastProcessedInput = player.getLastProcessedInput()?.vector ?? new Vector2(0, 0);
           console.log(`No input payload. Using last processed input x: ${lastProcessedInput.x}, y: ${lastProcessedInput.y}`);
+          player.addInputDebt(lastProcessedInput);
           player.update(lastProcessedInput, dt);
         } else {
-          player.update(inputPayload.vector, dt);
+          const inputDebtVector = player.peekInputDebt();
+          if (!inputDebtVector) {
+            // We have no input debt, so we can process the input normally.
+            player.update(inputPayload.vector, dt);
+          } else if (inputDebtVector.equals(inputPayload.vector)) {
+            // If the input matches the last processed input, we've already processed it and can skip it.
+            console.log(`Skipping input processing for player ${player.getId()} at tick ${inputPayload.tick}`);
+            player.popInputDebt();
+          } else {
+            // We've overpredicted and this is an entierly new input.
+            player.clearInputDebt();
+          }
         }
 
   

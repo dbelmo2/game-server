@@ -32,6 +32,7 @@ export class Player {
   private lastProcessedInput: InputPayload | null = null;
   private gameBounds: { left: number; right: number; top: number; bottom: number } | null = null;
   private numTicksWithoutInput: number = 0;
+  private InputDebt: Vector2[] = [];
 
   // Physics constants
   constructor(
@@ -177,7 +178,31 @@ export class Player {
   public setIsBystander(value: boolean): void {
     this.isBystander = value;
   }
+
   
+  public addInputDebt(inputVector: Vector2): void {
+    this.InputDebt.push(inputVector);
+  } 
+
+  public peekInputDebt(): Vector2 | undefined {
+    if (this.InputDebt.length === 0) {
+      return undefined;
+    }
+    return this.InputDebt[this.InputDebt.length - 1];
+  };
+
+  public clearInputDebt(): void {
+    this.InputDebt = [];
+  }
+
+  public popInputDebt(): Vector2 | undefined {
+    if (this.InputDebt.length === 0) {
+      return undefined;
+    }
+    return this.InputDebt.pop();
+  }
+
+
   public getIsBystander(): boolean {
     return this.isBystander;
   }
