@@ -235,12 +235,12 @@ export class Match {
           console.log(`No input payload. Using last processed input x: ${lastProcessedInput.x}, y: ${lastProcessedInput.y}`);
           player.addInputDebt(lastProcessedInput);
           player.update(lastProcessedInput, dt);
-        } else {
+        } else {         
           const inputDebtVector = player.peekInputDebt();
           if (!inputDebtVector) {
             // We have no input debt, so we can process the input normally.
             player.update(inputPayload.vector, dt);
-          } else if (inputDebtVector.equals(inputPayload.vector)) {
+          } else if (inputDebtVector.x === inputPayload.vector.x && inputDebtVector.y === inputPayload.vector.y) {
             // If the input matches the last processed input, we've already processed it and can skip it.
             console.log(`Skipping input processing for player ${player.getId()} at tick ${inputPayload.tick}`);
             player.popInputDebt();
