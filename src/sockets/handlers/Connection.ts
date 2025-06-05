@@ -2,12 +2,13 @@ import MatchMaker, { Region } from "../../services/MatchMaker";
 import logger from "../../utils/logger";
 import { Socket } from "socket.io";
 import { DefaultEventsMap } from "socket.io";
+import { config } from "../../config/config";
 
 export default function connectionHandler(socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) {
   logger.info(`Socket connected: ${socket.id}`);
   socket.on('joinQueue', ({ region, name }: { region: string, name: string}) => {
     logger.info(`Socket ${socket.id} emitted joinQueue`);
-    if (['NA', 'EU', 'ASIA'].includes(region)) {
+    if (config.VALID_REGIONS.includes(region)) {
       logger.info(`Valid region: ${region}, queuing player`);
       MatchMaker.enqueuePlayer({
         id: socket.id,
@@ -18,14 +19,7 @@ export default function connectionHandler(socket: Socket<DefaultEventsMap, Defau
       });
       socket.emit('queued', { region });
     } else {
-
       socket.emit('error', { message: 'Invalid region' });
     }
-    socket.emit('queued', { region });
-  });
-
-  socket.on('disconnect', () => {
-    logger.info(`Socket disconnected: ${socket.id}`);
-    // TODO: notify MatchMaker to remove player from queue
   });
 }

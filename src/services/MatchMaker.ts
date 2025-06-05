@@ -1,6 +1,7 @@
 import { config } from "../config/config";
 import logger from "../utils/logger";
 import { Match } from "./Match";
+import { Socket } from "socket.io";
 
 export type Region = 'NA' | 'EU' | 'ASIA' | 'GLOBAL';
 
@@ -11,7 +12,7 @@ const FRAME_MS     = 1000 / BROADCAST_HZ;  // outer‑loop cadence
 
 type QueuedPlayer = {
   id: string;
-  socket: any; // or socket.io Socket type
+  socket: Socket;
   region: Region;
   enqueuedAt: number;
   name: string;

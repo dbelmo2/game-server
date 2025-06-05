@@ -29,7 +29,7 @@ export class Player {
   private platforms: Platform[] = [];
   private canDoubleJump: boolean = true;
   private inputQueue: InputPayload[] = [];
-  private lastProcessedInput: number = 0;
+  private lastProcessedInput: InputPayload | null = null;
   private gameBounds: { left: number; right: number; top: number; bottom: number } | null = null;
   private numTicksWithoutInput: number = 0;
 
@@ -58,12 +58,12 @@ export class Player {
   }
   
 
-  public setLastProcessedInput(tick: number): void {
-    this.lastProcessedInput = tick;
+  public setLastProcessedInput(inputPayload: InputPayload): void {
+    this.lastProcessedInput = inputPayload;
   }
   
 
-  public getLastProcessedInput(): number {
+  public getLastProcessedInput(): InputPayload | null {
     return this.lastProcessedInput;
   } 
 

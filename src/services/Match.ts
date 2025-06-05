@@ -53,7 +53,7 @@ export class Match {
   private readonly GAME_HEIGHT = 1080; // Fixed game height
   private readonly STARTING_X = 100;
   private readonly STARTING_Y = 100;
-  private readonly TICK_RATE = 120; // 60 ticks per second
+  private readonly TICK_RATE = 60; // 60 ticks per second
   private readonly MIN_MS_BETWEEN_TICKS = 1000 / this.TICK_RATE;
   private readonly MIN_S_BETWEEN_TICKS = this.MIN_MS_BETWEEN_TICKS / 1000; // Convert to seconds
   private readonly BUFFER_SIZE = 1024;
@@ -105,7 +105,6 @@ export class Match {
 
   public addPlayer(socket: Socket, name: string): void {
     this.sockets.push(socket);
-    const controller = new Controller();
     const serverPlayer = new Player(
       socket.id, 
       this.STARTING_X, 
@@ -217,13 +216,17 @@ export class Match {
       while (numIntegrations < max) {
         const inputPayload = player.dequeueInput();
         if (!inputPayload) {
-          console.log(`no player input found, using default vector (0,0). Current server tick: ${this.serverTick}`);
           numIntegrations = max; // No more inputs to process
+          const lastProcessedInput = player.getLastProcessedInput()?.vector ?? new Vector2(0, 0);
+          console.log(`No input payload. Using last processed input x: ${lastProcessedInput.x}, y: ${lastProcessedInput.y}`);
+          player.update(lastProcessedInput, dt);
+        } else {
+          player.update(inputPayload.vector, dt);
         }
-        player.update(inputPayload?.vector || new Vector2(0,0), dt);
+
   
         if (inputPayload) {
-          player.setLastProcessedInput(inputPayload?.tick);
+          player.setLastProcessedInput(inputPayload);
           // TODO: This situation is causing the server position to fall behind the client position.
           // Downstream throttle?
         }
@@ -608,7 +611,7 @@ export class Match {
         name,
         position,
         velocity,
-        tick: player.getLastProcessedInput()
+        tick: player .getLastProcessedInput()?.tick || 0
       };
     });
   }
