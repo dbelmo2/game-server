@@ -67,7 +67,7 @@ export class Match {
   private readonly GAME_HEIGHT = 1080; // Fixed game height
   private readonly STARTING_X = 100;
   private readonly STARTING_Y = 100;
-  private readonly TICK_RATE = 30; // 60 ticks per second
+  private readonly TICK_RATE = 60; // 60 ticks per second
   private readonly MIN_MS_BETWEEN_TICKS = 1000 / this.TICK_RATE;
   private readonly MIN_S_BETWEEN_TICKS = this.MIN_MS_BETWEEN_TICKS / 1000; // Convert to seconds
   private readonly BUFFER_SIZE = 1024;
@@ -221,7 +221,7 @@ export class Match {
   // TODO: Would this be faster if we make it promise based and use promise.all?
   private integratePlayerInputs(dt: number) {
     for (const player of this.worldState.players.values()) {
-      const max = 1;
+      const max = 2;
       let numIntegrations = 0;
 
       // TODO: Address isse of number of inputs being processed and applying gravity multiple times...
