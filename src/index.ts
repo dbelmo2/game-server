@@ -8,7 +8,6 @@ import http from 'http';
 import logger from './utils/logger';
 
 import { Server as SocketIOServer } from 'socket.io';
-import MatchMaker, { Region } from './services/MatchMaker';
 import { errorMiddleware } from './api/middleware/error';
 import { rateLimiter } from './api/middleware/rateLimit';
 import { config } from './config/config';
@@ -44,7 +43,7 @@ app.use('/api', routes);
 
 io.on('connection', connectionHandler);
 
-const PORT = config.PORT || 3000;
+const PORT = config.PORT;
 server.listen(PORT, () => {
   logger.info(`Server is running on port ${PORT}`);
 });

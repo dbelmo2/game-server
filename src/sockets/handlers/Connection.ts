@@ -1,5 +1,5 @@
-import MatchMaker, { Region } from "@/services/MatchMaker";
-import logger from "@/utils/logger";
+import MatchMaker, { Region } from "../../services/MatchMaker";
+import logger from "../../utils/logger";
 import { Socket } from "socket.io";
 import { DefaultEventsMap } from "socket.io";
 
