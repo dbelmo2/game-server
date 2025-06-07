@@ -231,9 +231,11 @@ export class Match {
         const inputPayload = player.dequeueInput();
         if (!inputPayload) {
           numIntegrations = max; // No more inputs to process
-          const lastProcessedInput = player.getLastProcessedInput()?.vector ?? new Vector2(0, 0);
-          player.addInputDebt(lastProcessedInput);
-          player.update(lastProcessedInput, dt);
+          const lastProcessedInput = player.getLastProcessedInput();
+          const lastProcessedInputVector = lastProcessedInput?.vector ?? new Vector2(0, 0);
+          player.addInputDebt(lastProcessedInputVector);
+          player.update(lastProcessedInputVector, dt);
+          player.setLastProcessedInput({ tick: player.getLastProcessedInput()?.tick || 0, vector: lastProcessedInputVector });
         } else {         
           const inputDebtVector = player.peekInputDebt();
           if (!inputDebtVector) {
@@ -639,7 +641,7 @@ export class Match {
         name,
         position,
         velocity,
-        tick: player .getLastProcessedInput()?.tick || 0
+        tick: player.getLastProcessedInput()?.tick || 0
       };
     });
   }
