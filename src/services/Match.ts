@@ -221,7 +221,7 @@ export class Match {
   // TODO: Would this be faster if we make it promise based and use promise.all?
   private integratePlayerInputs(dt: number) {
     for (const player of this.worldState.players.values()) {
-      const max = 2;
+      const max = 1;
       let numIntegrations = 0;
 
       // TODO: Address isse of number of inputs being processed and applying gravity multiple times...
@@ -232,7 +232,6 @@ export class Match {
         if (!inputPayload) {
           numIntegrations = max; // No more inputs to process
           const lastProcessedInput = player.getLastProcessedInput()?.vector ?? new Vector2(0, 0);
-          console.log(`No input payload. Using last processed input x: ${lastProcessedInput.x}, y: ${lastProcessedInput.y}`);
           player.addInputDebt(lastProcessedInput);
           player.update(lastProcessedInput, dt);
         } else {         
@@ -246,7 +245,11 @@ export class Match {
             player.popInputDebt();
           } else {
             // We've overpredicted and this is an entierly new input.
+            console.log('Clearing the input debt for player', player.getId());
+            console.log(`Input debt vector: ${inputDebtVector.x}, ${inputDebtVector.y}`);
+            console.log(`New input vector: ${inputPayload.vector.x}, ${inputPayload.vector.y}`);
             player.clearInputDebt();
+            player.update(inputPayload.vector, dt);
           }
         }
 
@@ -328,7 +331,6 @@ export class Match {
       logger.error(`Player ${playerId} attempted to send input but was not found in match ${this.id}`);
       return;
     }
-    console.log(`Player ${playerId} sent input: ${JSON.stringify(playerInput)}`);
     player.queueInput(playerInput);
   }
 
