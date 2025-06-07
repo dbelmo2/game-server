@@ -235,7 +235,8 @@ export class Match {
           const lastProcessedInputVector = lastProcessedInput?.vector ?? new Vector2(0, 0);
           player.addInputDebt(lastProcessedInputVector);
           player.update(lastProcessedInputVector, dt);
-          player.setLastProcessedInput({ tick: player.getLastProcessedInput()?.tick || 0, vector: lastProcessedInputVector });
+          const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
+          player.setLastProcessedInput({ tick: newTick || 0, vector: lastProcessedInputVector });
         } else {         
           const inputDebtVector = player.peekInputDebt();
           if (!inputDebtVector) {
