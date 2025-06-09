@@ -244,7 +244,6 @@ export class Match {
             player.update(inputPayload.vector, dt);
           } else if (inputDebtVector.x === inputPayload.vector.x && inputDebtVector.y === inputPayload.vector.y) {
             // If the input matches the last processed input, we've already processed it and can skip it.
-            console.log(`Skipping input processing for player ${player.getId()} at tick ${inputPayload.tick}`);
             player.popInputDebt();
           } else {
             // We've overpredicted and this is an entierly new input.
@@ -328,7 +327,6 @@ export class Match {
   }
 
   private handlePlayerInputPayload(playerId: string, playerInput: InputPayload): void {
-    console.log(`Received input from player ${playerId}: ${JSON.stringify(playerInput)}`);
     const player = this.worldState.players.get(playerId);
     if (!player) {
       logger.error(`Player ${playerId} attempted to send input but was not found in match ${this.id}`);
