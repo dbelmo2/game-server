@@ -234,14 +234,14 @@ export class Match {
           const lastProcessedInput = player.getLastProcessedInput();
           const lastProcessedInputVector = lastProcessedInput?.vector ?? new Vector2(0, 0);
           player.addInputDebt(lastProcessedInputVector);
-          player.update(lastProcessedInputVector, dt);
-          const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
+            const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
+          player.update(lastProcessedInputVector, dt, newTick, 'A');
           player.setLastProcessedInput({ tick: newTick || 0, vector: lastProcessedInputVector });
         } else {         
           const inputDebtVector = player.peekInputDebt();
           if (!inputDebtVector) {
             // We have no input debt, so we can process the input normally.
-            player.update(inputPayload.vector, dt);
+            player.update(inputPayload.vector, dt, inputPayload.tick, 'B');
           } else if (inputDebtVector.x === inputPayload.vector.x && inputDebtVector.y === inputPayload.vector.y) {
             // If the input matches the last processed input, we've already processed it and can skip it.
             player.popInputDebt();
@@ -251,7 +251,7 @@ export class Match {
             console.log(`Input debt vector: ${inputDebtVector.x}, ${inputDebtVector.y}`);
             console.log(`New input vector: ${inputPayload.vector.x}, ${inputPayload.vector.y}`);
             player.clearInputDebt();
-            player.update(inputPayload.vector, dt);
+            player.update(inputPayload.vector, dt, inputPayload.tick, 'C');
           }
         }
 

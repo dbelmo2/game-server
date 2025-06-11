@@ -76,7 +76,7 @@ export class Player {
   private isJumping = false;
   private indexPostJump = 0
 
-  update(inputVector: Vector2, dt: number) {
+  update(inputVector: Vector2, dt: number, localTick: number, scenario: string): void {
 
       //const wasOnGround = this.isOnGround;
       if (inputVector.x === 0 && inputVector.y === 0) {
@@ -138,7 +138,7 @@ export class Player {
 
       if (this.isJumping && inputVector.y === 0 && inputVector.x === 0) {
         this.indexPostJump++;
-        console.log(`Player coordinates ${this.indexPostJump} ticks after jump: ${this.x}, ${this.y}`);
+        console.log(`${scenario}: Player coordinates ${this.indexPostJump} ticks after jump: ${this.x}, ${this.y}. localTick: ${localTick}`);
       }
 
                         
