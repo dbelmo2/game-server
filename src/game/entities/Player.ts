@@ -123,11 +123,13 @@ export class Player {
       if (this.gameBounds) {
           this.x = Math.max(this.gameBounds.left + 25, Math.min(newX, this.gameBounds.right - 25)); // 50 is the width of the player
           //this.y = Math.max(this.gameBounds.top, Math.min(newY, this.gameBounds.bottom)); // 50 is the height of the player
-      } else {
+          this.y = newY;
+        } else {
           this.x = newX;
           this.y = newY;
       }
 
+      console.log()
       if (this.y === this.gameBounds?.bottom) {
           this.isOnGround = true;
           this.canDoubleJump = true; // Reset double jump when on ground
