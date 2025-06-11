@@ -226,7 +226,7 @@ export class Match {
 
       // TODO: Address isse of number of inputs being processed and applying gravity multiple times...
       // Idea... scale changes in update() based on how many inputs are processed...?
-
+      let skipped = false; // Track if we skipped processing an input
       while (numIntegrations < max) {
         const inputPayload = player.dequeueInput();
         if (!inputPayload) {
@@ -237,7 +237,7 @@ export class Match {
             const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
           player.update(lastProcessedInputVector, dt, newTick, 'A');
           player.setLastProcessedInput({ tick: newTick || 0, vector: lastProcessedInputVector });
-          console.log(`Updated last processed input with tick: ${newTick} and vector: x=${lastProcessedInputVector.x}, y=${lastProcessedInputVector.y}`);
+          console.log(`no input payload scenario: Updated last processed input with tick: ${newTick} and vector: x=${lastProcessedInputVector.x}, y=${lastProcessedInputVector.y}`);
         } else {         
           const inputDebtVector = player.peekInputDebt();
           if (!inputDebtVector) {
@@ -246,6 +246,7 @@ export class Match {
           } else if (inputDebtVector.x === inputPayload.vector.x && inputDebtVector.y === inputPayload.vector.y) {
             // If the input matches the last processed input, we've already processed it and can skip it.
             player.popInputDebt();
+            skipped = true;
           } else {
             // We've overpredicted and this is an entierly new input.
             console.log('Clearing the input debt for player', player.getId());
@@ -256,10 +257,11 @@ export class Match {
           }
         }
 
+        // 
   
-        if (inputPayload) {
+        if (inputPayload && skipped === false) {
           player.setLastProcessedInput(inputPayload);
-          console.log(`Updated last processed input with tick: ${inputPayload.tick} and vector: x=${inputPayload.vector.x}, y=${inputPayload.vector.y}`);
+          console.log(`Yes input payload scenario: Updated last processed input with tick: ${inputPayload.tick} and vector: x=${inputPayload.vector.x}, y=${inputPayload.vector.y}`);
           // TODO: This situation is causing the server position to fall behind the client position.
           // Downstream throttle?
         }
