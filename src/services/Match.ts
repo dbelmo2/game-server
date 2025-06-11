@@ -237,7 +237,6 @@ export class Match {
             const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
           player.update(lastProcessedInputVector, dt, newTick, 'A');
           player.setLastProcessedInput({ tick: newTick || 0, vector: lastProcessedInputVector });
-          console.log(`no input payload scenario: Updated last processed input with tick: ${newTick} and vector: x=${lastProcessedInputVector.x}, y=${lastProcessedInputVector.y}`);
         } else {         
           const inputDebtVector = player.peekInputDebt();
           if (!inputDebtVector) {
@@ -261,11 +260,9 @@ export class Match {
   
         if (inputPayload && skipped === false) {
           player.setLastProcessedInput(inputPayload);
-          console.log(`Yes input payload scenario: Updated last processed input with tick: ${inputPayload.tick} and vector: x=${inputPayload.vector.x}, y=${inputPayload.vector.y}`);
           // TODO: This situation is causing the server position to fall behind the client position.
           // Downstream throttle?
         }
-        //console.log(`Player is at position (${player.getX()}, ${player.getY()}) after processing input at tick ${player.getLastProcessedInput() + player.getNumTicksWithoutInput()}`);
 
         numIntegrations++;
       }

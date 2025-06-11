@@ -102,7 +102,6 @@ export class Player {
       //console.log('inputVector.v < 0', inputVector.y < 0)
       //console.log('this.canDoubleJump', this.canDoubleJump);
       if ((inputVector.y < 0 && this.isOnGround) || (inputVector.y < 0 && this.canDoubleJump)) {
-        console.log("Jumping");
         this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
         this.canDoubleJump = this.isOnGround;
         this.isOnGround = false;
@@ -124,13 +123,11 @@ export class Player {
       if (this.gameBounds) {
           this.x = Math.max(this.gameBounds.left + 25, Math.min(newX, this.gameBounds.right - 25)); // 50 is the width of the player
           this.y = Math.max(this.gameBounds.top, Math.min(newY, this.gameBounds.bottom)); // 50 is the height of the player
-          console.log('updated player position', this.x, this.y);
         } else {
           this.x = newX;
           this.y = newY;
       }
 
-      console.log()
       if (this.y === this.gameBounds?.bottom) {
           this.isOnGround = true;
           this.canDoubleJump = true; // Reset double jump when on ground
@@ -141,7 +138,6 @@ export class Player {
 
       if (this.isJumping && inputVector.y === 0 && inputVector.x === 0) {
         this.indexPostJump++;
-        console.log(`${scenario}: Player coordinates ${this.indexPostJump} ticks after jump: ${this.x}, ${this.y}. localTick: ${localTick}`);
       }
 
                         
