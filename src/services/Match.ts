@@ -233,6 +233,7 @@ export class Match {
           numIntegrations = max; // No more inputs to process
           const lastProcessedInput = player.getLastProcessedInput();
           const lastProcessedInputVector = lastProcessedInput?.vector ?? new Vector2(0, 0);
+          // TODO: If the player is standing still on the ground, do we want input debt?
           player.addInputDebt(lastProcessedInputVector);
             const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
           player.update(lastProcessedInputVector, dt, newTick, 'A');
@@ -252,6 +253,7 @@ export class Match {
             console.log('Clearing the input debt for player', player.getId());
             console.log(`Input debt vector: ${inputDebtVector.x}, ${inputDebtVector.y}`);
             console.log(`New input vector: ${inputPayload.vector.x}, ${inputPayload.vector.y}`);
+            // TODO: Is this scenario clearing valuable data that causes desync?
             player.clearInputDebt();
             player.update(inputPayload.vector, dt, inputPayload.tick, 'C');
           }
@@ -269,7 +271,6 @@ export class Match {
 
         numIntegrations++;
       }
-      console.log();
     }
   };
 
@@ -640,20 +641,13 @@ export class Match {
   }
 
   private getPlayerStates(): PlayerState[] {
-    return Array.from(this.worldState.players.values()).map((player) => {
-      const { id, hp, isBystander, name, position, velocity } = player.getState();
-      return {
-        id,
-        hp,
-        isBystander,
-        name,
-        position,
-        velocity,
-        tick: player.getLastProcessedInput()?.tick || 0
-      };
-    });
+    const states = [];
+    for (const player of this.worldState.players.values()) {
+      const state = player.getLatestState();
+      if (state) {
+        states.push(state);
+      }
+    }
+    return states;
   }
-
-
-
 }

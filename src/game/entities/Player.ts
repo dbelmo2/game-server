@@ -11,7 +11,7 @@ export interface PlayerState {
   name: string;
   velocity: Vector2;
   isOnGround?: boolean;
-  tick?: number; // Optional tick for debugging
+  tick: number; 
 }
 export class Player {
   public readonly SPEED = 750;
@@ -34,6 +34,7 @@ export class Player {
   private gameBounds: { left: number; right: number; top: number; bottom: number } | null = null;
   private numTicksWithoutInput: number = 0;
   private InputDebt: Vector2[] = [];
+  private lastKnownState: PlayerState | null = null;
 
   // Physics constants
   constructor(
@@ -102,7 +103,7 @@ export class Player {
       //console.log('inputVector.v < 0', inputVector.y < 0)
       //console.log('this.canDoubleJump', this.canDoubleJump);
       if ((inputVector.y < 0 && this.isOnGround) || (inputVector.y < 0 && this.canDoubleJump)) {
-        console.log("Jumping");
+        console.log("Jumping... Current coordinates:", this.x, this.y, "Input vector:", inputVector);
         this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
         this.canDoubleJump = this.isOnGround;
         this.isOnGround = false;
@@ -124,7 +125,7 @@ export class Player {
       if (this.gameBounds) {
           this.x = Math.max(this.gameBounds.left + 25, Math.min(newX, this.gameBounds.right - 25)); // 50 is the width of the player
           this.y = Math.max(this.gameBounds.top, Math.min(newY, this.gameBounds.bottom)); // 50 is the height of the player
-          console.log('updated player position', this.x, this.y);
+          //console.log(`At localTick: ${localTick}. Player updated player position`, this.x, this.y);
         } else {
           this.x = newX;
           this.y = newY;
@@ -143,7 +144,8 @@ export class Player {
         console.log(`${scenario}: Player coordinates ${this.indexPostJump} ticks after jump: ${this.x}, ${this.y}. localTick: ${localTick}`);
       }
 
-                        
+      this.updateLatestState(localTick);          
+      
       /*
       // Check platform collisions
       for (const platform of this.platforms) {
@@ -238,17 +240,24 @@ export class Player {
     return this.name;
   }
 
-  public getState(): PlayerState {
-    return {
+
+  public updateLatestState(latestProcessedTick: number): void {
+    this.lastKnownState = {
       id: this.id,
       hp: this.hp,
-      isBystander: this.isBystander,
       name: this.name,
+      isBystander: this.isBystander,
       velocity: this.velocity,
       position: new Vector2(this.x, this.y),
       isOnGround: this.isOnGround,
-    };
+      tick: latestProcessedTick,
+    }
   }
+
+  public getLatestState(): PlayerState | null {
+    return this.lastKnownState;
+  }
+
 
   public getInputQueueLength(): number {
     return this.inputQueue.length;
