@@ -230,9 +230,14 @@ export class Match {
       while (numIntegrations < max) {
         const inputPayload = player.dequeueInput();
         if (!inputPayload) {
+          // TODO: Fix scenario where last input was a jump command and is reused here..
+          // Instead, in this scenario, we should use an input of 0,0.
+          // Additionally, we need to check here if the player is standing still on the ground...
+          // In this scenario, despite using a last input of 0,0, we should NOT apply input debt.
           numIntegrations = max; // No more inputs to process
           const lastProcessedInput = player.getLastProcessedInput();
           const lastProcessedInputVector = lastProcessedInput?.vector ?? new Vector2(0, 0);
+          lastProcessedInputVector.y = 0; // Reset y to 0 to avoid predicted double jump issues.
           // TODO: If the player is standing still on the ground, do we want input debt?
           player.addInputDebt(lastProcessedInputVector);
             const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
