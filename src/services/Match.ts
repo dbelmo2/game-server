@@ -62,6 +62,40 @@ export type InputPayload = {
 
 const MAX_KILL_AMOUNT = 5; // Adjust this value as needed
 
+
+// TODO: Fix issue where, the jump command arrives while the server position is still in the air,
+// but the client is on the ground. In this situation, the server and the client are synced up to a tick before the jump arrives,
+// yet for some reason the server position is still in the air.
+/*
+
+B: Player coordinates 54 ticks after jump: 137.5, 1034.1666666666667. localTick: 1924
+
+broadcasting gamesate with laasdt player input tick: 1924
+
+B: Player coordinates 57 ticks after jump: 137.5, 1067.9166666666667. localTick: 1927
+
+Yes input payload scenario: Updated last processed input with tick: 1927 and vector: x=0, y=0
+
+broadcasting gamesate with laasdt player input tick: 1927
+
+Jumping... Current coordinates: 137.5 1067.9166666666667 Input vector: { x: 0, y: -1 }
+
+A: Player coordinates 58 ticks after jump: 137.5, 1044.1666666666667. localTick: 1931
+
+broadcasting gamesate with laasdt player input tick: 1931
+
+
+--------
+
+In these example logs, for the client, the jump occured at y = 1080, but at 1927, y was 1067.9166666666667
+matching the server position.
+
+
+
+
+
+*/
+
 export class Match {
   private readonly GAME_WIDTH = 1920;  // Fixed game width
   private readonly GAME_HEIGHT = 1080; // Fixed game height
