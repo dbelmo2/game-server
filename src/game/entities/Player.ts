@@ -103,7 +103,7 @@ export class Player {
       //console.log('inputVector.v < 0', inputVector.y < 0)
       //console.log('this.canDoubleJump', this.canDoubleJump);
       if ((inputVector.y < 0 && this.isOnGround) || (inputVector.y < 0 && this.canDoubleJump)) {
-        console.log(`Jumping... Current coordinates: ${this.x}, ${this.y}. Input vector: ${inputVector}. Local tick: ${localTick}`);
+        console.log(`Jumping... Current coordinates: ${this.x}, ${this.y}. Input vector: ${JSON.stringify(inputVector)}. Local tick: ${localTick}`);
         this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
         this.canDoubleJump = this.isOnGround;
         this.isOnGround = false;
