@@ -12,6 +12,8 @@ export interface PlayerState {
   velocity: Vector2;
   isOnGround?: boolean;
   tick: number; 
+  vx: number; // Horizontal velocity
+  vy: number; // Vertical velocity
 }
 export class Player {
   public readonly SPEED = 750;
@@ -110,8 +112,6 @@ export class Player {
         this.isJumping = true; // Set jumping state
       }
 
-
-
       // Gravity
       this.velocity.y += this.GRAVITY * dt;
       this.velocity.y = Math.min(this.velocity.y, this.MAX_FALL_SPEED); 
@@ -119,8 +119,11 @@ export class Player {
 
       // 2. Once the velocity is updated, we calculate the new position.
       const newX = this.x + (this.velocity.x * dt);
-      const newY = this.y + (this.velocity.y * dt);
+      let newY = this.y + (this.velocity.y * dt);
 
+      // Deliberate desync for testing
+      if (inputVector.y !== 0) newY -= 10;
+      
       // 3. Now we clamp the position to the game bounds.
       if (this.gameBounds) {
           this.x = Math.max(this.gameBounds.left + 25, Math.min(newX, this.gameBounds.right - 25)); // 50 is the width of the player
@@ -139,7 +142,7 @@ export class Player {
           this.indexPostJump = 0; // Reset post-jump index
       }
 
-      if (this.isJumping && inputVector.y === 0 && inputVector.x === 0) {
+      if (this.isJumping && inputVector.y === 0) {
         this.indexPostJump++;
         console.log(`${scenario}: Player coordinates ${this.indexPostJump} ticks after jump: ${this.x}, ${this.y}. Vy=${this.velocity.y}. localTick: ${localTick}`);
       }
@@ -251,6 +254,8 @@ export class Player {
       position: new Vector2(this.x, this.y),
       isOnGround: this.isOnGround,
       tick: latestProcessedTick,
+      vx: this.velocity.x,
+      vy: this.velocity.y
     }
   }
 
