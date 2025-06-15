@@ -255,7 +255,7 @@ export class Match {
   // TODO: Would this be faster if we make it promise based and use promise.all?
   private integratePlayerInputs(dt: number) {
     for (const player of this.worldState.players.values()) {
-      const max = 3;
+      const max = 1;
       let numIntegrations = 0;
 
       // TODO: Address isse of number of inputs being processed and applying gravity multiple times...
