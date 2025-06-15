@@ -271,10 +271,16 @@ export class Match {
           numIntegrations = max; // No more inputs to process
           const lastProcessedInput = player.getLastProcessedInput();
           const lastProcessedInputVector = lastProcessedInput?.vector ?? new Vector2(0, 0);
-          lastProcessedInputVector.y = 0; // Reset y to 0 to avoid predicted double jump issues.
-          // TODO: If the player is standing still on the ground, do we want input debt?
-          player.addInputDebt(lastProcessedInputVector);
-            const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
+           // Reset y to 0 to avoid predicted double jump issues.
+           // This does not cause issues as there is no realistic scenario where a player intends to
+           // send two jump inputs in a row. Therefore we know we will never need to predict this scenario.
+          lastProcessedInputVector.y = 0;
+
+          // We only add input debt if the player is not AFK.
+          if (player.isAfk(lastProcessedInputVector) === false) {
+            player.addInputDebt(lastProcessedInputVector);
+          }
+          const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
           player.update(lastProcessedInputVector, dt, newTick, 'A');
           player.setLastProcessedInput({ tick: newTick || 0, vector: lastProcessedInputVector });
           console.log(`no input payload scenario: Updated last processed input with tick: ${newTick} and vector: x=${lastProcessedInputVector.x}, y=${lastProcessedInputVector.y}`);
@@ -298,15 +304,12 @@ export class Match {
           }
         }
 
-        // 
+        
   
         if (inputPayload && skipped === false) {
           player.setLastProcessedInput(inputPayload);
           console.log(`Yes input payload scenario: Updated last processed input with tick: ${inputPayload.tick} and vector: x=${inputPayload.vector.x}, y=${inputPayload.vector.y}`);
-          // TODO: This situation is causing the server position to fall behind the client position.
-          // Downstream throttle?
         }
-        //console.log(`Player is at position (${player.getX()}, ${player.getY()}) after processing input at tick ${player.getLastProcessedInput() + player.getNumTicksWithoutInput()}`);
 
         numIntegrations++;
       }

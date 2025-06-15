@@ -29,6 +29,7 @@ export class Player {
   private isBystander: boolean = true;
   private name: string;
   private isOnGround: boolean = false;
+  private isOnSurface: boolean = false; // Used for platform collision detection
   private platforms: Platform[] = [];
   private canDoubleJump: boolean = true;
   private inputQueue: InputPayload[] = [];
@@ -136,6 +137,7 @@ export class Player {
 
       if (this.y === this.gameBounds?.bottom) {
           this.isOnGround = true;
+          this.isOnSurface = true; // Player is on the ground
           this.canDoubleJump = true; // Reset double jump when on ground
           this.velocity.y = 0; // Reset vertical velocity when on ground
           this.isJumping = false; // Reset jumping state
@@ -244,6 +246,12 @@ export class Player {
   }
 
 
+  public isAfk(vector: Vector2): boolean {
+    if (vector.x === 0 && vector.y === 0 && this.isOnSurface) {
+      return true;
+    }
+    return false;
+  }
   public updateLatestState(latestProcessedTick: number): void {
     this.lastKnownState = {
       id: this.id,
