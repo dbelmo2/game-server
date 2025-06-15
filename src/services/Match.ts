@@ -370,17 +370,26 @@ export class Match {
       socket.on('toggleBystander', () => this.handleToggleBystander(socket.id));
       socket.on('disconnect', () => this.handlePlayerDisconnect(socket.id));
       socket.on('ping', (callback) => this.handlePing(callback));
-      socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(socket.id, inputPayload));
+      socket.on('playerInput', (inputPayloads: InputPayload[]) => this.handlePlayerInputPayload(socket.id, inputPayloads));
     }
   }
 
-  private handlePlayerInputPayload(playerId: string, playerInput: InputPayload): void {
+  private handlePlayerInputPayload(playerId: string, playerInputs: InputPayload[]): void {
     const player = this.worldState.players.get(playerId);
     if (!player) {
       logger.error(`Player ${playerId} attempted to send input but was not found in match ${this.id}`);
       return;
     }
-    player.queueInput(playerInput);
+
+    console.log(`Received ${playerInputs.length} inputs for player ${playerId} in match ${this.id}`);
+    console.log(playerInputs);
+
+    for (const playerInput of playerInputs) {
+        console.log(playerInput);
+        console.log(`Queuing input for player ${playerId} with tick: ${playerInput.tick} and vector: x=${playerInput.vector.x}, y=${playerInput.vector.y}`);
+        player.queueInput(playerInput);
+    }
+
   }
 
   private checkWinCondition() {
@@ -456,7 +465,6 @@ export class Match {
 
       const playerStates = this.getPlayerStates();
       const firstPlayer = this.getPlayerStates()[0];
-      console.log('broadcasting gamesate with laasdt player input tick:', firstPlayer?.tick || 0);
       const gameState = {
         serverTick: this.serverTick,
         players: playerStates,
