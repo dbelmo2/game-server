@@ -6,7 +6,7 @@ import { Socket } from "socket.io";
 export type Region = 'NA' | 'EU' | 'ASIA' | 'GLOBAL';
 
 
-const BROADCAST_HZ = 10;                   // 100 ms, 10 updates per second
+const BROADCAST_HZ = 2;                   // 100 ms, 10 updates per second
 const FRAME_MS     = 1000 / BROADCAST_HZ;  // outer‑loop cadence
 
 
