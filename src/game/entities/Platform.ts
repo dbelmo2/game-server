@@ -10,4 +10,18 @@ export class Platform {
     this.width = width;
     this.height = height;
   }
+
+
+getPlatformBounds() {
+    // Use parent transform-aware position but compensate for camera movement
+    return {
+        left: this.x,
+        right: this.x + this.width,
+        top: this.y,
+        bottom: this.y + this.height,
+        width: this.width,
+        height: this.height
+    };
+}
+
 }

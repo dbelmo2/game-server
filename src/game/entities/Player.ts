@@ -82,13 +82,7 @@ export class Player {
   private indexPostJump = 0
 
   update(inputVector: Vector2, dt: number, localTick: number, scenario: string): void {
-
-      //const wasOnGround = this.isOnGround;
-      if (inputVector.x === 0 && inputVector.y === 0) {
-          //this.numTicksWithoutInput++;
-      } else {
-          //this.numTicksWithoutInput = 0; // Reset if we have input
-      }
+      const wasOnGround = this.isOnGround;
 
       // 1. First we update our velocity vector based on input and physics.
       // Horizontal Movement
@@ -100,11 +94,6 @@ export class Player {
       }
 
       // Jumping
-      
-
-
-      //console.log('inputVector.v < 0', inputVector.y < 0)
-      //console.log('this.canDoubleJump', this.canDoubleJump);
       if ((inputVector.y < 0 && this.isOnGround) || (inputVector.y < 0 && this.canDoubleJump)) {
         logger.debug(`Player ${this.name} is jumping... Current coordinates: ${this.x}, ${this.y}. Input vector: ${JSON.stringify(inputVector)}. Local tick: ${localTick}`);
         this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
@@ -149,39 +138,49 @@ export class Player {
         logger.debug(`${scenario}: Player coordinates ${this.indexPostJump} ticks after jump: ${this.x}, ${this.y}. Vy=${this.velocity.y}. localTick: ${localTick}`);
       }
 
-      this.updateLatestState(localTick);          
-      
-      /*
       // Check platform collisions
-      for (const platform of this.platforms) {
-      const platformBounds = platform.getPlatformBounds();
-      const playerBounds = this.getPlayerBounds();
-      
-      // Calculate the previous position based on velocity
-      const prevBottom = playerBounds.bottom - this.velocityY;
-      
-      // Check for platform collision with tunneling prevention
-      const isGoingDown = this.velocityY > 0;
-      const wasAbovePlatform = prevBottom <= platformBounds.top;
-      const isWithinPlatformWidth = playerBounds.right > platformBounds.left && 
-      playerBounds.left < platformBounds.right;
-      const hasCollidedWithPlatform = playerBounds.bottom >= platformBounds.top;
-      
-      // Check if we're falling, were above platform last frame, and are horizontally aligned
-      if (isGoingDown && wasAbovePlatform && isWithinPlatformWidth && hasCollidedWithPlatform) {
-
-          this.y = platformBounds.top;
-          this.velocityY = 0;
-          isOnSurface = true;
-          break;
+      const { isOnPlatform, platformTop } = this.checkPlatformCollisions();            
+      if (isOnPlatform && platformTop !== null) {
+          this.y = platformTop;
+          this.velocity.y = 0;
+          this.isOnSurface = true;
       }
-      }
-
-      this.isOnGround = isOnSurface;
-      if (isOnSurface && !wasOnGround) {
+    
+      this.isOnGround = this.isOnSurface;
+      if (this.isOnSurface && !wasOnGround) {
           this.canDoubleJump = true;
       }
-    */
+      
+      this.updateLatestState(localTick);          
+
+  }
+
+
+  public checkPlatformCollisions(): { isOnPlatform: boolean; platformTop: number | null } {
+      for (const platform of this.platforms) {
+        const platformBounds = platform.getPlatformBounds();
+        const playerBounds = this.getPlayerBounds();
+        
+        // Check for platform collision with tunneling prevention
+        const isGoingDown = this.velocity.y > 0;
+        const isOnPlatform = playerBounds.bottom === platformBounds.top;
+        const isFallingThroughPlatform = playerBounds.bottom > platformBounds.top && 
+          playerBounds.bottom < platformBounds.bottom;
+
+        const isWithinPlatformWidth = playerBounds.right > platformBounds.left && 
+          playerBounds.left < platformBounds.right;
+        
+
+        console.log(`Player bottom ${playerBounds.bottom} Platform top ${platformBounds.top}, Velocity Y ${this.velocity.y}`);
+        // Check if we're falling, were above platform last frame, and are horizontally aligned
+          
+        // Check if we're falling, were above platform last frame, and are horizontally aligned
+        if (isGoingDown && isWithinPlatformWidth && (isOnPlatform || isFallingThroughPlatform)) {
+            return { isOnPlatform: true, platformTop: platformBounds.top };
+        }
+      }
+      
+      return { isOnPlatform: false, platformTop: null };  
   }
 
   public setIsBystander(value: boolean): void {
@@ -226,6 +225,27 @@ export class Player {
   
   public resetHealth(): void {
     this.hp = 100;
+  }
+
+
+  public getPlayerBounds(): { top: number; bottom: number; left: number; right: number; width: number; height: number } {
+    const width = 50;
+    const height = 50;
+    
+    // Since pivot is at bottom middle (25, 50), we calculate bounds accordingly
+    const left = this.x - 25; // pivot x (this.x) minus half width
+    const right = this.x + 25; // pivot x (this.x) plus half width
+    const bottom = this.y; // pivot y (this.y) is at the bottom
+    const top = this.y - height; // top is bottom minus height
+    
+    return {
+      top,
+      bottom,
+      left,
+      right,
+      width,
+      height
+    };
   }
   
   public getId(): string {

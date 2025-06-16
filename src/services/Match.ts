@@ -591,17 +591,17 @@ export class Match {
   private handlePlayerDeath(victimId: string, victimName: string, killerId: string) {
       this.worldState.players.delete(victimId);
       // Update death count for killed player
-
       const killer = this.worldState.players.get(killerId);
       const killerName = killer ? killer.getName() : "Unknown Player";
   
 
       const killedPlayerScore = this.playerScores.get(victimId);
+
       if (killedPlayerScore) {
         killedPlayerScore.deaths++;
         logger.info(`Player ${victimName} (${victimId}) was killed by ${killerName} (${killerId}) in match ${this.id}`);
       } else {
-        logger.error(`Failed to update deaths for player ${victimName} (${victimId}) - score not found`);
+        logger.warn(`Failed to update deaths for player ${victimName} (${victimId}) - score not found`);
       }
       // Update kill count for shooter
       const shooterScore = this.playerScores.get(killerId);
