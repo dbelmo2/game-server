@@ -283,7 +283,7 @@ export class Match {
           const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
           player.update(lastProcessedInputVector, dt, newTick, 'A');
           player.setLastProcessedInput({ tick: newTick || 0, vector: lastProcessedInputVector });
-          console.log(`no input payload scenario: Updated last processed input with tick: ${newTick} and vector: x=${lastProcessedInputVector.x}, y=${lastProcessedInputVector.y}`);
+          logger.debug(`Player ${player.getName()} no input payload scenario: Updated last processed input with tick: ${newTick} and vector: x=${lastProcessedInputVector.x}, y=${lastProcessedInputVector.y}`);
         } else {         
           const inputDebtVector = player.peekInputDebt();
           if (!inputDebtVector) {
@@ -295,10 +295,6 @@ export class Match {
             skipped = true;
           } else {
             // We've overpredicted and this is an entierly new input.
-            console.log('Clearing the input debt for player', player.getId());
-            console.log(`Input debt vector: ${inputDebtVector.x}, ${inputDebtVector.y}`);
-            console.log(`New input vector: ${inputPayload.vector.x}, ${inputPayload.vector.y}`);
-            // TODO: Is this scenario clearing valuable data that causes desync?
             player.clearInputDebt();
             player.update(inputPayload.vector, dt, inputPayload.tick, 'C');
           }
@@ -308,7 +304,7 @@ export class Match {
   
         if (inputPayload && skipped === false) {
           player.setLastProcessedInput(inputPayload);
-          console.log(`Yes input payload scenario: Updated last processed input with tick: ${inputPayload.tick} and vector: x=${inputPayload.vector.x}, y=${inputPayload.vector.y}`);
+          logger.debug(`Updated last processed input with new input payload sent from client. tick: ${inputPayload.tick} and vector: x=${inputPayload.vector.x}, y=${inputPayload.vector.y}`);
         }
 
         numIntegrations++;
@@ -370,25 +366,18 @@ export class Match {
       socket.on('toggleBystander', () => this.handleToggleBystander(socket.id));
       socket.on('disconnect', () => this.handlePlayerDisconnect(socket.id));
       socket.on('ping', (callback) => this.handlePing(callback));
-      socket.on('playerInput', (inputPayloads: InputPayload[]) => this.handlePlayerInputPayload(socket.id, inputPayloads));
+      socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(socket.id, inputPayload));
     }
   }
 
-  private handlePlayerInputPayload(playerId: string, playerInputs: InputPayload[]): void {
+  private handlePlayerInputPayload(playerId: string, playerInput: InputPayload): void {
     const player = this.worldState.players.get(playerId);
     if (!player) {
       logger.error(`Player ${playerId} attempted to send input but was not found in match ${this.id}`);
       return;
     }
 
-    console.log(`Received ${playerInputs.length} inputs for player ${playerId} in match ${this.id}`);
-    console.log(playerInputs);
-
-    for (const playerInput of playerInputs) {
-        console.log(playerInput);
-        console.log(`Queuing input for player ${playerId} with tick: ${playerInput.tick} and vector: x=${playerInput.vector.x}, y=${playerInput.vector.y}`);
-        player.queueInput(playerInput);
-    }
+    player.queueInput(playerInput);
 
   }
 
@@ -499,7 +488,7 @@ export class Match {
         
         // Check expired projectiles
         if (projectile.shouldBeDestroyed) {
-          console.log(`Projectile ${projectile.getId()} expired`);
+          logger.debug(`Projectile ${projectile.getId()} expired`);
           projectilesToRemove.push(i);
           continue;
         }
@@ -585,7 +574,7 @@ export class Match {
       }      
       logger.debug(`Player ${p.getName()} (${playerId}) fired projectile ${projectileId} in match ${this.id}`);
       const projectile = new Projectile(p.getX(), p.getY(), x, y, 30, 5000, 0.05, projectileId, p.getId());
-      console.log(`Projectile created with ID: ${projectile.getId()}`);
+      logger.debug(`Projectile created with ID: ${projectile.getId()}`);
       this.worldState.projectiles.push(projectile);
   }
 

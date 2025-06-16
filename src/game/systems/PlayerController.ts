@@ -58,10 +58,6 @@ export class Controller {
 
     const now = Date.now();
     const state = this.keys[key];
-
-    // Calculate duration using key-specific down time
-    const totalTime = state.downTime > 0 ? now - state.downTime : 0;
-    console.log(`Key ${key} was down for ${totalTime}ms`);
     
     // Reset the down time for this key
     state.downTime = 0;
