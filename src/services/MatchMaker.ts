@@ -6,7 +6,7 @@ import { Socket } from "socket.io";
 export type Region = 'NA' | 'EU' | 'ASIA' | 'GLOBAL';
 
 
-const BROADCAST_HZ = 20;                   // 50 ms
+const BROADCAST_HZ = 10;                   // 100 ms, 10 updates per second
 const FRAME_MS     = 1000 / BROADCAST_HZ;  // outer‑loop cadence
 
 
@@ -61,9 +61,6 @@ class Matchmaker {
   }
 
   private serverLoop = () => {
-    const now = Date.now();
-    const delta = now - this.lastBroadcast;
-
     for (const match of this.matches.values()) {
       const shouldRemove = match.getShouldRemove();
       if (match.getIsReady() && shouldRemove === false) {
@@ -75,6 +72,9 @@ class Matchmaker {
         logger.info(`Match ${match.getId()} is not ready yet`);
       }
     }
+
+    const now = Date.now();
+    const delta = now - this.lastBroadcast;
 
     if (delta >= FRAME_MS) {
       for (const match of this.matches.values()) match.broadcastGameState();
