@@ -82,7 +82,6 @@ export class Player {
   private indexPostJump = 0
 
   update(inputVector: Vector2, dt: number, localTick: number, scenario: string): void {
-      const wasOnGround = this.isOnGround;
 
       // 1. First we update our velocity vector based on input and physics.
       // Horizontal Movement
@@ -94,11 +93,12 @@ export class Player {
       }
 
       // Jumping
-      if ((inputVector.y < 0 && this.isOnGround) || (inputVector.y < 0 && this.canDoubleJump)) {
+      if ((inputVector.y < 0 && this.isOnSurface) || (inputVector.y < 0 && this.canDoubleJump)) {
         logger.debug(`Player ${this.name} is jumping... Current coordinates: ${this.x}, ${this.y}. Input vector: ${JSON.stringify(inputVector)}. Local tick: ${localTick}`);
         this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
-        this.canDoubleJump = this.isOnGround;
+        this.canDoubleJump = this.isOnSurface;
         this.isOnGround = false;
+        this.isOnSurface = false; // Player is no longer on the ground
         this.isJumping = true; // Set jumping state
       }
 
@@ -109,11 +109,8 @@ export class Player {
 
       // 2. Once the velocity is updated, we calculate the new position.
       const newX = this.x + (this.velocity.x * dt);
-      let newY = this.y + (this.velocity.y * dt);
+      const newY = this.y + (this.velocity.y * dt);
 
-      // Deliberate desync for testing
-      if (inputVector.y !== 0) newY -= 10;
-      
       // 3. Now we clamp the position to the game bounds.
       if (this.gameBounds) {
           this.x = Math.max(this.gameBounds.left + 25, Math.min(newX, this.gameBounds.right - 25)); // 50 is the width of the player
@@ -145,11 +142,7 @@ export class Player {
           this.velocity.y = 0;
           this.isOnSurface = true;
       }
-    
-      this.isOnGround = this.isOnSurface;
-      if (this.isOnSurface && !wasOnGround) {
-          this.canDoubleJump = true;
-      }
+
       
       this.updateLatestState(localTick);          
 
