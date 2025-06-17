@@ -9,8 +9,6 @@ export class Vector2 {
     this.y = y;
   }
 
-
-
   // ---------- mutating instance methods ----------
   add(v: Vector2): this      { this.x += v.x; this.y += v.y; return this; }
   subtract(v: Vector2): this { this.x -= v.x; this.y -= v.y; return this; }
