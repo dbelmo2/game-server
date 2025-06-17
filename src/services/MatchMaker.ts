@@ -68,6 +68,7 @@ class Matchmaker {
       } else if (shouldRemove) {
         match.cleanUpSession();
         this.removeMatch(match.getId());
+        logger.info(`Match ${match.getId()} removed from matchmaker`);
       } else {
         logger.info(`Match ${match.getId()} is not ready yet`);
       }
