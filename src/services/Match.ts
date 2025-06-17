@@ -606,7 +606,7 @@ export class Match {
       // Update kill count for shooter
       const shooterScore = this.playerScores.get(killerId);
       if (shooterScore) {
-        logger.info(`Player ${killerName} (${killerId}) now has ${shooterScore.kills} kills in match ${this.id}`);
+        logger.info(`Player ${killerName} (${killerId}) now has ${shooterScore.kills + 1} kills in match ${this.id}`);
         shooterScore.kills++;
         this.checkWinCondition();
       } else {

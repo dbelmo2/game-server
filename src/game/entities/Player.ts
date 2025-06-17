@@ -171,7 +171,7 @@ export class Player {
           playerBounds.left < platformBounds.right;
         
 
-        console.log(`Player bottom ${playerBounds.bottom} Platform top ${platformBounds.top}, Velocity Y ${this.velocity.y}`);
+        //console.log(`Player bottom ${playerBounds.bottom} Platform top ${platformBounds.top}, Velocity Y ${this.velocity.y}`);
         // Check if we're falling, were above platform last frame, and are horizontally aligned
           
         // Check if we're falling, were above platform last frame, and are horizontally aligned
