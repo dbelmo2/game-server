@@ -311,6 +311,7 @@ export class Player {
       return undefined;
     }
     const input = this.inputQueue.shift();
+    console.log(`Currently ${this.inputQueue.length} inputs behind...`);
     return input;
   } 
 
