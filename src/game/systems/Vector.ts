@@ -3,10 +3,13 @@ export class Vector2 {
 
   public x: number;
   public y: number;
+  public mouse?: { x: number; y: number, id: string };
 
-  constructor(x = 0, y = 0) {
+
+  constructor(x = 0, y = 0, mouse?: { x: number; y: number, id: string }) {
     this.x = x;
     this.y = y;
+    this.mouse = mouse;
   }
 
   // ---------- mutating instance methods ----------

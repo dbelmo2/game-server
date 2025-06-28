@@ -20,7 +20,6 @@ export class Player {
   public readonly JUMP_STRENGTH = 750;
   public readonly GRAVITY = 1500;
   public readonly MAX_FALL_SPEED = 1500;
-
   private id: string;
   private hp: number = 100;
   private x: number;
@@ -38,6 +37,10 @@ export class Player {
   private numTicksWithoutInput: number = 0;
   private InputDebt: Vector2[] = [];
   private lastKnownState: PlayerState | null = null;
+  private isShooting = false; // Track if the player is shooting
+  private lastInputTimestamp: number = Date.now(); // Timestamp of the last input
+  public afkRemoveTimer: NodeJS.Timeout | undefined; // Timer for AFK removal
+  
 
   // Physics constants
   constructor(
@@ -57,6 +60,7 @@ export class Player {
 
   public queueInput(input: InputPayload): void {
     this.inputQueue.push(input);
+    this.lastInputTimestamp = Date.now();
   }
 
   public setPlatforms(platforms: Platform[]): void {
@@ -68,6 +72,9 @@ export class Player {
     this.lastProcessedInput = inputPayload;
   }
   
+  public getLastInputTimestamp(): number {
+    return this.lastInputTimestamp;
+  }
 
   public getLastProcessedInput(): InputPayload | null {
     return this.lastProcessedInput;
@@ -82,7 +89,7 @@ export class Player {
   private indexPostJump = 0
 
   update(inputVector: Vector2, dt: number, localTick: number, scenario: string): void {
-
+      //console.log(`player position: ${this.x}, ${this.y}`);
       // 1. First we update our velocity vector based on input and physics.
       // Horizontal Movement
       if (inputVector.x !== 0) {
@@ -90,6 +97,14 @@ export class Player {
         this.velocity.x = inputVector.x * this.SPEED;
       } else {
         this.velocity.x = 0;
+      }
+
+
+      // Shooting
+      if (inputVector.mouse) {
+        // Handle shooting logic here, if applicable
+        this.isShooting = true;
+        logger.debug(`Player ${this.name} is shooting at mouse coordinates: ${JSON.stringify(inputVector.mouse)}. Local tick: ${localTick}`);
       }
 
       // Jumping
@@ -282,6 +297,15 @@ export class Player {
     }
     return false;
   }
+
+  public updateTimeSinceLastInput(): void {
+    this.numTicksWithoutInput = 0;
+    if (this.inputQueue.length === 0) {
+      this.numTicksWithoutInput++;
+    }
+    logger.debug(`Player ${this.name} has ${this.numTicksWithoutInput} ticks without input. Local tick: ${this.lastKnownState?.tick}`);
+  }
+
   public updateLatestState(latestProcessedTick: number): void {
     this.lastKnownState = {
       id: this.id,
@@ -311,9 +335,15 @@ export class Player {
       return undefined;
     }
     const input = this.inputQueue.shift();
-    console.log(`Currently ${this.inputQueue.length} inputs behind...`);
     return input;
   } 
 
+  public resetShooting(): void {
+    this.isShooting = false;
+    logger.debug(`Player ${this.name} has reset shooting state. Local tick: ${this.lastKnownState?.tick}`);
+  }
 
+  public isShootingActive(): boolean {
+    return this.isShooting;
+  }
 }

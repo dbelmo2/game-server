@@ -31,21 +31,24 @@ export class Projectile  {
     this.vy = dirY * this.speed;
   }
 
+  // TODO: update collision logic for tomatos? Or verify that the desync in collisions is due to this. 
+  // Current slight y desync is caused by y value being different on client and server for the player. server has 1030 when on ground,
+  // client has 1145.
 
   constructor(
+    id: string,
+    ownerId: string,
     spawnX: number, 
     spawnY: number, 
     targetX: number, 
     targetY: number,
-    speed = 5, 
-    lifespan = 2000, 
-    gravityEffect = 0.005, 
-    id: string,
-    ownerId: string
+    speed = 30, 
+    lifespan = 5000, 
+    gravityEffect = 0.05, 
   ) {
     // initialize 
     this.x = spawnX;
-    this.y = spawnY - 25;
+    this.y = spawnY;
     this.speed = speed;
     this.lifespan = lifespan;
     this.gravityEffect = gravityEffect;
@@ -55,6 +58,7 @@ export class Projectile  {
     // Calculate direction vector
     this.calculateVelocity(spawnX, spawnY, targetX, targetY);
     
+    console.log(`Projectile created with id: ${this.id}, spawn position: (${spawnX}, ${spawnY}), target position: (${targetX}, ${targetY}), speed: ${speed}, lifespan: ${lifespan}, gravity effect: ${gravityEffect}`);
 
     // Begin the age process (we dont want projetiles sticking around forever)
     this.age();
@@ -64,6 +68,7 @@ export class Projectile  {
     this.vy += this.gravityEffect;
     this.x += this.vx;
     this.y += this.vy;
+    console.log(`Projectile ${this.id} position: (${this.x}, ${this.y}) with velocity (${this.vx}, ${this.vy})`);
   }
 
   destroy() {

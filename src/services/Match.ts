@@ -220,6 +220,7 @@ export class Match {
       // Run fixed updates as needed
       while (this.accumulator >= this.MIN_MS_BETWEEN_TICKS) {
         this.updatePhysics(this.MIN_S_BETWEEN_TICKS); // Pass fixed delta
+        this.removeAfkPlayers();
         this.accumulator -= this.MIN_MS_BETWEEN_TICKS;
         this.serverTick++;
       }
@@ -227,6 +228,30 @@ export class Match {
       this.handleError(error as Error, 'gameLoop');
     }
   }
+
+  
+  public removeAfkPlayers(): void {
+
+    const currentTime = Date.now();
+    const afkThreshold = 10000; // 10 seconds of inactivity
+
+    for (const [playerId, player] of this.worldState.players.entries()) {
+      if (currentTime - player.getLastInputTimestamp() > afkThreshold && !player.afkRemoveTimer) {
+        logger.info(`Player ${player.getName()} (${playerId}) is AFK and will be removed from match ${this.id}`);
+        const playerSocket = this.sockets.find(s => s.id === playerId);
+        if (playerSocket) {
+          playerSocket.emit('afkWarning', { message: 'You have been inactive for too long and will be removed from the match.' });
+          player.afkRemoveTimer = setTimeout(() => {
+            playerSocket.emit('afkRemoved', { message: 'You have been removed from the match due to inactivity.' });
+            playerSocket.disconnect(true);
+          }, 10000); // Wait 5 seconds before removing
+
+          this.timeoutIds.add(player.afkRemoveTimer)
+        }
+    }
+  }
+  }
+
 
 
   public getShouldRemove(): boolean {
@@ -271,17 +296,21 @@ export class Match {
           numIntegrations = max; // No more inputs to process
           const lastProcessedInput = player.getLastProcessedInput();
           const lastProcessedInputVector = lastProcessedInput?.vector ?? new Vector2(0, 0);
-           // Reset y to 0 to avoid predicted double jump issues.
-           // This does not cause issues as there is no realistic scenario where a player intends to
-           // send two jump inputs in a row. Therefore we know we will never need to predict this scenario.
+          // Reset y to 0 to avoid predicted double jump issues.
+          // This does not cause issues as there is no realistic scenario where a player intends to
+          // send two jump inputs in a row. Therefore we know we will never need to predict this scenario.
+          // Same with shooting/mouse inputs
           lastProcessedInputVector.y = 0;
-
+          lastProcessedInputVector.mouse = undefined;
           // We only add input debt if the player is not AFK.
           if (player.isAfk(lastProcessedInputVector) === false) {
             player.addInputDebt(lastProcessedInputVector);
           }
           const newTick = lastProcessedInput?.tick ? lastProcessedInput.tick + 1 : 0;
           player.update(lastProcessedInputVector, dt, newTick, 'A');
+          if (player.isShootingActive() && lastProcessedInput) {
+            this.handlePlayerShooting(player, lastProcessedInput)
+          }
           player.setLastProcessedInput({ tick: newTick || 0, vector: lastProcessedInputVector });
           logger.debug(`Player ${player.getName()} no input payload scenario: Updated last processed input with tick: ${newTick} and vector: x=${lastProcessedInputVector.x}, y=${lastProcessedInputVector.y}`);
         } else {         
@@ -297,6 +326,10 @@ export class Match {
             // We've overpredicted and this is an entierly new input.
             player.clearInputDebt();
             player.update(inputPayload.vector, dt, inputPayload.tick, 'C');
+          }
+
+          if (player.isShootingActive()) {
+            this.handlePlayerShooting(player, inputPayload)
           }
         }
 
@@ -350,7 +383,7 @@ export class Match {
   }
 
   private initializePlatforms(): void {
-    // Initialize platforms here
+    // Initialize platforms here 
     this.worldState.platforms = [
           new Platform(250, this.GAME_HEIGHT - 250),
           new Platform(this.GAME_WIDTH - 850, this.GAME_HEIGHT - 250),
@@ -362,7 +395,6 @@ export class Match {
   private setUpPlayerSocketHandlers(sockets: Socket[]) {
     for (const socket of sockets) {
       // Move shoot handling and toggleBystander to PlayerInput event.
-      socket.on('shoot', ({ x, y, id }) => this.handlePlayerShooting(socket.id, id, x, y));
       socket.on('toggleBystander', () => this.handleToggleBystander(socket.id));
       socket.on('disconnect', () => this.handlePlayerDisconnect(socket.id));
       socket.on('ping', (callback) => this.handlePing(callback));
@@ -378,7 +410,11 @@ export class Match {
     }
 
     player.queueInput(playerInput);
-
+    if (player.afkRemoveTimer) {
+      clearTimeout(player.afkRemoveTimer); // Clear any existing AFK timeout
+      this.timeoutIds.delete(player.afkRemoveTimer); // Clear any existing AFK timeout
+      player.afkRemoveTimer = undefined; // Reset AFK timer on input
+    }
   }
 
   private checkWinCondition() {
@@ -479,7 +515,7 @@ export class Match {
     try {
       // Process player updates with fixed delta
       this.integratePlayerInputs(dt);
-      
+  
       // Process projectile updates
       const projectilesToRemove: number[] = [];
       for (let i = 0; i < this.worldState.projectiles.length; i++) {
@@ -503,6 +539,7 @@ export class Match {
       for (let i = projectilesToRemove.length - 1; i >= 0; i--) {
         this.worldState.projectiles.splice(projectilesToRemove[i], 1);
       }
+      
     } catch (error) {
       this.handleError(error as Error, 'fixedUpdate');
     }
@@ -558,22 +595,19 @@ export class Match {
 
   
   private handlePlayerShooting(
-    playerId: string, 
-    projectileId: string,
-    x: number,
-    y: number,
+    player: Player, 
+    inputPayload: InputPayload,
   ): void {
-      const p = this.worldState.players.get(playerId);
-      if (!p || p.getIsBystander()) {
-        if (!p) {
-          logger.error(`Player ${playerId} attempted to shoot but was not found in match ${this.id}`);
-        } else if (p.getIsBystander()) {
-          logger.warn(`Bystander ${p.getName()} (${playerId}) attempted to shoot in match ${this.id}`);
-        }
+      player.resetShooting(); // Reset shooting state after handling input
+      if (!inputPayload.vector.mouse) return
+      const { x, y, id } = inputPayload.vector.mouse;
+
+      if (player.getIsBystander()) {
+        logger.warn(`Bystander ${player.getName()} (${player.getId()}) attempted to shoot in match ${this.id}`);
         return;
       }      
-      logger.debug(`Player ${p.getName()} (${playerId}) fired projectile ${projectileId} in match ${this.id}`);
-      const projectile = new Projectile(p.getX(), p.getY(), x, y, 30, 5000, 0.05, projectileId, p.getId());
+      logger.debug(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
+      const projectile = new Projectile(id, player.getId(), player.getX(), player.getY() - 50, x, y);
       logger.debug(`Projectile created with ID: ${projectile.getId()}`);
       this.worldState.projectiles.push(projectile);
   }
