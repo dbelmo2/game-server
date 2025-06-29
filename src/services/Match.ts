@@ -233,7 +233,7 @@ export class Match {
   public removeAfkPlayers(): void {
 
     const currentTime = Date.now();
-    const afkThreshold = 10000; // 10 seconds of inactivity
+    const afkThreshold = 20000; // 20 seconds of inactivity
 
     for (const [playerId, player] of this.worldState.players.entries()) {
       if (currentTime - player.getLastInputTimestamp() > afkThreshold && !player.afkRemoveTimer) {
