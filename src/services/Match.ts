@@ -399,7 +399,25 @@ export class Match {
       socket.on('disconnect', () => this.handlePlayerDisconnect(socket.id));
       socket.on('ping', (callback) => this.handlePing(callback));
       socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(socket.id, inputPayload));
+      socket.on('projectileHit', (enemyId) => this.handleProjectileHit(socket.id, enemyId));
     }
+  }
+
+  private handleProjectileHit(playerId: string, enemyId: string): void {
+    const player = this.worldState.players.get(playerId);
+    if (!player) {
+      logger.error(`Player ${playerId} attempted to hit an enemy but was not found in match ${this.id}`);
+      return;
+    }
+
+    const enemy = this.worldState.players.get(enemyId);
+    if (!enemy) {
+      logger.error(`Enemy ${enemyId} not found for player ${playerId} in match ${this.id}`);
+      return;
+    }
+
+    // Handle projectile hit logic
+    this.handleCollision(playerId, enemy);
   }
 
   private handlePlayerInputPayload(playerId: string, playerInput: InputPayload): void {
@@ -531,7 +549,7 @@ export class Match {
         
         // Check for collisions only if match is active
         if (this.matchIsActive) {
-          this.checkProjectileCollisions(i, projectile, projectilesToRemove);
+          //this.checkProjectileCollisions(i, projectile, projectilesToRemove);
         }
       }
 
@@ -568,7 +586,7 @@ export class Match {
       const collided = testForAABB(projectileRect, playerRect);
       if (collided) {
         projectilesToRemove.push(index);
-        this.handleCollision(projectile, player);
+        //this.handleCollision(projectile, player);
         return true; // Exit after collision
       } 
     }
@@ -612,12 +630,12 @@ export class Match {
       this.worldState.projectiles.push(projectile);
   }
 
-  private handleCollision(projectile: Projectile, player: Player): void {
-      if (player.getIsBystander()) return; // Prevent damage to bystanders
-      player.damage(10);
+  private handleCollision(shooterId: string, target: Player): void {
+      if (target.getIsBystander()) return; // Prevent damage to bystanders
+      target.damage(10);
 
-      if (player.getHp() <= 0) {
-        this.handlePlayerDeath(player.getId(), player.getName(), projectile.getOwnerId());
+      if (target.getHp() <= 0) {
+        this.handlePlayerDeath(target.getId(), target.getName(), shooterId);
       }
       
   }
