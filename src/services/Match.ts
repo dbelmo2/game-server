@@ -60,7 +60,7 @@ export type InputPayload = {
   vector: Vector2;
 }
 
-const MAX_KILL_AMOUNT = 5; // Adjust this value as needed
+const MAX_KILL_AMOUNT = 3; // Adjust this value as needed
 
 
 // TODO: Fix issue where, the jump command arrives while the server position is still in the air,
@@ -416,6 +416,8 @@ export class Match {
       return;
     }
 
+    // first check if the projectile exists in the world state history
+    // and that it belongs to the player
     // Handle projectile hit logic
     this.handleCollision(playerId, enemy);
   }
