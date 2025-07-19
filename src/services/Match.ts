@@ -104,13 +104,15 @@ export class Match {
   private readonly TICK_RATE = 60; // 60 ticks per second
   private readonly MIN_MS_BETWEEN_TICKS = 1000 / this.TICK_RATE;
   private readonly MIN_S_BETWEEN_TICKS = this.MIN_MS_BETWEEN_TICKS / 1000; // Convert to seconds
-  private readonly BUFFER_SIZE = 1024;
   private readonly GAME_BOUNDS = {
     left: 0,
     right: this.GAME_WIDTH,
     top: 0,
     bottom: this.GAME_HEIGHT
   };
+
+  private AFK_THRESHOLD_MS= 30000; // 30 seconds of inactivity
+
 
   private worldState: WorldState = {
     players: new Map(),
@@ -233,10 +235,9 @@ export class Match {
   public removeAfkPlayers(): void {
 
     const currentTime = Date.now();
-    const afkThreshold = 20000; // 20 seconds of inactivity
 
     for (const [playerId, player] of this.worldState.players.entries()) {
-      if (currentTime - player.getLastInputTimestamp() > afkThreshold && !player.afkRemoveTimer) {
+      if (currentTime - player.getLastInputTimestamp() > this.AFK_THRESHOLD_MS && !player.afkRemoveTimer) {
         logger.info(`Player ${player.getName()} (${playerId}) is AFK and will be removed from match ${this.id}`);
         const playerSocket = this.sockets.find(s => s.id === playerId);
         if (playerSocket) {
@@ -385,10 +386,10 @@ export class Match {
   private initializePlatforms(): void {
     // Initialize platforms here 
     this.worldState.platforms = [
-          new Platform(250, this.GAME_HEIGHT - 250),
-          new Platform(this.GAME_WIDTH - 850, this.GAME_HEIGHT - 250),
-          new Platform(250, this.GAME_HEIGHT - 500),
-          new Platform(this.GAME_WIDTH - 850, this.GAME_HEIGHT - 500)
+          new Platform(0, this.GAME_HEIGHT - 250),
+          new Platform(this.GAME_WIDTH - 500, this.GAME_HEIGHT - 250),
+          new Platform(0, this.GAME_HEIGHT - 500),
+          new Platform(this.GAME_WIDTH - 500, this.GAME_HEIGHT - 500)
 
     ];
   }

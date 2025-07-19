@@ -43,7 +43,7 @@ export class Projectile  {
     targetX: number, 
     targetY: number,
     speed = 30, 
-    lifespan = 5000, 
+    lifespan = 1750, 
     gravityEffect = 0.05, 
   ) {
     // initialize 
