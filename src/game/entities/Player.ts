@@ -107,11 +107,9 @@ export class Player {
         logger.debug(`Player ${this.name} is shooting at mouse coordinates: ${JSON.stringify(inputVector.mouse)}. Local tick: ${localTick}`);
       }
 
-      // Jumping
-      if ((inputVector.y < 0 && this.isOnSurface) || (inputVector.y < 0 && this.canDoubleJump)) {
-        logger.debug(`Player ${this.name} is jumping... Current coordinates: ${this.x}, ${this.y}. Input vector: ${JSON.stringify(inputVector)}. Local tick: ${localTick}`);
-        this.jump(inputVector);
-      } 
+      if (inputVector.y < 0) {
+          this.jump(inputVector);
+      }
 
       // Gravity
       this.applyGravity(dt);
@@ -128,12 +126,10 @@ export class Player {
 
       if (this.y === this.gameBounds?.bottom) {
           this.isOnGround = true;
-          this.isOnSurface = true; // Player is on the ground
-          this.canDoubleJump = true; // Reset double jump when on ground
-          this.velocity.y = 0; // Reset vertical velocity when on ground
-          this.isJumping = false; // Reset jumping state
-          this.indexPostJump = 0; // Reset post-jump index
-      }
+          this.resetJumpState();
+      } else {
+          this.isOnGround = false; 
+        }
 
       if (this.isJumping && inputVector.y === 0) {
         this.indexPostJump++;
@@ -144,14 +140,26 @@ export class Player {
       const { isOnPlatform, platformTop } = this.checkPlatformCollisions();            
       if (isOnPlatform && platformTop !== null) {
           this.y = platformTop;
-          this.velocity.y = 0;
-          this.isOnSurface = true;
+          this.resetJumpState();
+          
       }
 
-      
-      this.updateLatestState(localTick);          
+
+      this.isOnSurface = isOnPlatform || this.isOnGround; // Update surface state based on platform collision
+
+
+      this.updateLatestState(localTick);
 
   }
+
+  private resetJumpState(): void {
+      this.canDoubleJump = true;
+      this.velocity.y = 0;
+      this.isJumping = false;
+      this.indexPostJump = 0;
+      this.isOnSurface = true;
+  }
+
 
 
   private applyGravity(dt: number): void {
@@ -160,11 +168,17 @@ export class Player {
   }
 
   private jump(inputVector: Vector2): void {
-      this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
-      this.canDoubleJump = this.isOnSurface;
-      this.isOnGround = false;
-      this.isOnSurface = false; // Player is no longer on the ground
-      this.isJumping = true; // Set jumping state
+    if (this.isOnSurface) {
+        // First jump from ground/platform
+        this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
+        this.canDoubleJump = true; // Enable double jump
+        this.isOnSurface = false;
+        this.isJumping = true;
+    } else if (this.canDoubleJump) {
+        // Double jump in air
+        this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
+        this.canDoubleJump = false; // Disable further jumping
+    }
   }
 
   private getClampedPosition(newX: number, newY: number): { clampedX: number; clampedY: number } {
