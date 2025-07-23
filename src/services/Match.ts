@@ -386,10 +386,10 @@ export class Match {
   private initializePlatforms(): void {
     // Initialize platforms here 
     this.worldState.platforms = [
-          new Platform(0, this.GAME_HEIGHT - 250),
-          new Platform(this.GAME_WIDTH - 500, this.GAME_HEIGHT - 250),
-          new Platform(0, this.GAME_HEIGHT - 500),
-          new Platform(this.GAME_WIDTH - 500, this.GAME_HEIGHT - 500)
+          new Platform(115, this.GAME_HEIGHT - 250),
+          new Platform(this.GAME_WIDTH - 610, this.GAME_HEIGHT - 250),
+          new Platform(115, this.GAME_HEIGHT - 500),
+          new Platform(this.GAME_WIDTH - 610, this.GAME_HEIGHT - 500)
 
     ];
   }
