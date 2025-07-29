@@ -111,7 +111,7 @@ export class Match {
     bottom: this.GAME_HEIGHT
   };
 
-  private AFK_THRESHOLD_MS= 30000; // 30 seconds of inactivity
+  private AFK_THRESHOLD_MS= 60000; // 30 seconds of inactivity
 
 
   private worldState: WorldState = {
@@ -393,6 +393,7 @@ export class Match {
 
     ];
   }
+  
   private setUpPlayerSocketHandlers(sockets: Socket[]) {
     for (const socket of sockets) {
       // Move shoot handling and toggleBystander to PlayerInput event.
