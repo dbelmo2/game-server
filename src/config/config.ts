@@ -4,4 +4,5 @@ export const config = {
     PORT: parseInt(process.env.PORT || '3001', 10),
     NODE_ENV: process.env.NODE_ENV || 'development',
     VALID_REGIONS: process.env.VALID_REGIONS ? process.env.VALID_REGIONS.split(',') : ['NA', 'EU', 'ASIA', 'GLOBAL'],
+    CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || '*',
 }

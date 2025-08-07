@@ -14,6 +14,13 @@ import { config } from './config/config';
 import routes from './api/routes/index';
 import connectionHandler from './sockets/handlers/Connection';
 
+const parseAllowedOrigins = (originsString: string): string[] | string => {
+  if (originsString === '*') return '*';
+  return originsString.split(',').map(origin => origin.trim()).filter(origin => origin.length > 0);
+};
+
+const allowedOrigins = parseAllowedOrigins(config.CORS_ALLOWED_ORIGINS);
+
 
 const app = express();
 const server = http.createServer(app);
@@ -28,7 +35,9 @@ const io = new SocketIOServer(server, {
 });
 
 app.set('trust proxy', 1);
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+}));
 app.use(helmet());
 app.use(express.json());
 app.use(express.text({ type: 'application/atom+xml' }));

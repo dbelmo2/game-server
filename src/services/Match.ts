@@ -231,6 +231,13 @@ export class Match {
     }
   }
 
+
+  public informShowIsLive(): void { 
+    logger.info(`Match ${this.id} is live! Informing players...`);
+    for (const socket of this.sockets) {
+      socket.emit('showIsLive');
+    }
+  }
   
   public removeAfkPlayers(): void {
 

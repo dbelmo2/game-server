@@ -22,12 +22,18 @@ type QueuedPlayer = {
 class Matchmaker {
   private matches: Map<string, Match>;
   private lastBroadcast: number = Date.now();
+  private showisLive: boolean = false; // This should be set based on your application logic
+
+  // TODO: Somehow, inform players that the show is live. Either in game loop or elsewhere
   
   constructor() {
     this.matches = new Map<string, Match>();
     this.serverLoop();
   }
 
+  public setShowIsLive(show: boolean) {
+    this.showisLive = show;
+  }
 
   public enqueuePlayer(player: QueuedPlayer) {
     const match = this.findMatchInRegion(player.region);
@@ -65,7 +71,13 @@ class Matchmaker {
     for (const match of this.matches.values()) {
       const shouldRemove = match.getShouldRemove();
       if (match.getIsReady() && shouldRemove === false) {
-        match.update();
+
+
+        if (this.showisLive) {
+          match.informShowIsLive();
+          this.showisLive = false; // Reset after processing
+        }
+          match.update();
       } else if (shouldRemove) {
         match.cleanUpSession();
         this.removeMatch(match.getId());
