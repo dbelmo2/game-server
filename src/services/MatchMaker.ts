@@ -75,7 +75,6 @@ class Matchmaker {
 
         if (this.showisLive) {
           match.informShowIsLive();
-          this.showisLive = false; // Reset after processing
         }
           match.update();
       } else if (shouldRemove) {
@@ -86,6 +85,8 @@ class Matchmaker {
         logger.info(`Match ${match.getId()} is not ready yet`);
       }
     }
+
+    if (this.showisLive) this.showisLive = false;
 
     const now = Date.now();
     const delta = now - this.lastBroadcast;
