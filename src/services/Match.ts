@@ -405,7 +405,7 @@ export class Match {
     for (const socket of sockets) {
       // Move shoot handling and toggleBystander to PlayerInput event.
       socket.on('toggleBystander', () => this.handleToggleBystander(socket.id));
-      socket.on('disconnect', () => this.handlePlayerDisconnect(socket.id));
+      socket.on('disconnect', (reason, details) => this.handlePlayerDisconnect(socket.id, reason, details));
       socket.on('ping', (callback) => this.handlePing(callback));
       socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(socket.id, inputPayload));
       socket.on('projectileHit', (enemyId) => this.handleProjectileHit(socket.id, enemyId));
@@ -604,10 +604,16 @@ export class Match {
     return false;
   }
 
-  private handlePlayerDisconnect(playerId: string): void {
+  private handlePlayerDisconnect(playerId: string, reason: string, details: string): void {
     const player = this.worldState.players.get(playerId);
+    
     const playerName = player ? player.getName() : "Unknown Player";
   
+
+    logger.info("Player disconnected... The reason: ")
+    logger.info(reason);
+    logger.info(details);
+
     this.worldState.players.delete(playerId);
     this.playerScores.delete(playerId);
     this.sockets = this.sockets.filter(s => s.id !== playerId);
@@ -621,7 +627,6 @@ export class Match {
       this.shouldRemove = true;
     }  
   }
-
   
   private handlePlayerShooting(
     player: Player, 
@@ -637,7 +642,6 @@ export class Match {
       }      
       logger.debug(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
       const projectile = new Projectile(id, player.getId(), player.getX(), player.getY() - 50, x, y);
-      logger.debug(`Projectile created with ID: ${projectile.getId()}`);
       this.worldState.projectiles.push(projectile);
   }
 

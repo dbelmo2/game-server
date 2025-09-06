@@ -58,7 +58,6 @@ export class Projectile  {
     // Calculate direction vector
     this.calculateVelocity(spawnX, spawnY, targetX, targetY);
     
-    console.log(`Projectile created with id: ${this.id}, spawn position: (${spawnX}, ${spawnY}), target position: (${targetX}, ${targetY}), speed: ${speed}, lifespan: ${lifespan}, gravity effect: ${gravityEffect}`);
 
     // Begin the age process (we dont want projetiles sticking around forever)
     this.age();
@@ -68,7 +67,6 @@ export class Projectile  {
     this.vy += this.gravityEffect;
     this.x += this.vx;
     this.y += this.vy;
-    console.log(`Projectile ${this.id} position: (${this.x}, ${this.y}) with velocity (${this.vx}, ${this.vy})`);
   }
 
   destroy() {
