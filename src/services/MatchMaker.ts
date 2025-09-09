@@ -63,7 +63,7 @@ class Matchmaker {
           player.name, 
           player.region, 
           matchId, 
-          this.removeMatch.bind(this),
+          () => this.removeMatch.bind(this),
           this.setDisconnectedPlayer.bind(this),
           this.removeDisconnectedPlayer.bind(this),
         );
