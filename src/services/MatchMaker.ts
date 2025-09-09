@@ -63,7 +63,7 @@ class Matchmaker {
           player.name, 
           player.region, 
           matchId, 
-          () => this.removeMatch.bind(this),
+          this.removeMatch.bind(this),
           this.setDisconnectedPlayer.bind(this),
           this.removeDisconnectedPlayer.bind(this),
         );
@@ -95,7 +95,7 @@ class Matchmaker {
       clearTimeout(this.disconnectedPlayers.get(playerId)!.timeoutId);
       logger.info(`Cleared disconnect timeout for player ${playerId}`);
       this.disconnectedPlayers.delete(playerId);
-      logger.info(`Player ${playerId} reconnected and removed from disconnected list`);
+      logger.info(`Removed player ${playerId} from disconnected players list`);
       return;
     }
   }
@@ -140,6 +140,7 @@ class Matchmaker {
 
 
   private removeMatch = (match: Match) => {
+      logger.info(`Removing match ${match.getId()}`);
       for (const playerId of match.getPlayerIds()) {
         this.removeDisconnectedPlayer(playerId);
       }

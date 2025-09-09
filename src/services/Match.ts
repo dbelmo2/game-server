@@ -113,7 +113,7 @@ export class Match {
   };
 
   private AFK_THRESHOLD_MS = 60000; // 60 seconds of inactivity
-  private DISCONNECT_GRACE_PERIOD_MS = 10000; // 10 seconds to reconnect before removal
+  private DISCONNECT_GRACE_PERIOD_MS = 20000; // 20 seconds to reconnect before removal
 
 
   private worldState: WorldState = {
@@ -146,7 +146,7 @@ export class Match {
     firstPlayerName: string,
     region: Region,
     id = `match-${Math.random().toString(36).substring(2, 8)}`,
-    private removeMatchCallback: (matchId: string) => void,
+    private removeMatchCallback: (match: Match) => void,
     private setDisconnectedPlayerCallback: (playerId: string, matchId: string, timeoutId: NodeJS.Timeout) => void,
     private removeDisconnectedPlayerCallback: (playerId: string) => void
   ) {
@@ -330,8 +330,8 @@ export class Match {
     this.playerScores.clear();
     this.socketIdToPlayerId.clear();
     this.playerIdToSocketId.clear();
-    
-    this.removeMatchCallback(this.id);
+
+    this.removeMatchCallback(this);
     logger.info(`Match ${this.id} ended and cleaned up \n\n`);
   }
 
