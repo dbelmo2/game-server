@@ -50,11 +50,7 @@ app.use('/api', (req, res, next) => {
 
 app.use('/api', routes);
 
-io.on('connection', connectionHandler);
-
-io.on('disconnect', (socket) => {
-  logger.info(`Socket disconnected: ${socket.id}`);
-});
+io.on('connection', (socket) => connectionHandler(socket, io));
 
 const PORT = config.PORT;
 server.listen(PORT, () => {

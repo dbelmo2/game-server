@@ -4,8 +4,13 @@ import { Socket } from "socket.io";
 import { DefaultEventsMap } from "socket.io";
 import { config } from "../../config/config";
 
-export default function connectionHandler(socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>) {
+export default function connectionHandler(
+  socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>, 
+  io: any) {
   logger.info(`Socket connected: ${socket.id}`);
+    // Get and log the total number of connected clients
+  const connectedClients = io.engine.clientsCount;
+  console.log(`Total connected clients connected: ${connectedClients}`);
   socket.on('joinQueue', ({ region, name }: { region: string, name: string}) => {
       logger.info(`Socket ${socket.id} emitted joinQueue`);
       if (config.VALID_REGIONS.includes(region)) {
@@ -22,4 +27,10 @@ export default function connectionHandler(socket: Socket<DefaultEventsMap, Defau
         socket.disconnect(true);
       }
   });
+
+
+  socket.on('disconnect', (reason) => {
+      logger.info(`Socket disconnected: ${socket.id}, reason: ${reason}`);
+  });
+
 }
