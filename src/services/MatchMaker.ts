@@ -119,6 +119,7 @@ class Matchmaker {
         }
           match.update();
       } else if (shouldRemove) {
+        logger.info(`Calling remove match from server loop for match ${match.getId()}`);
         this.removeMatch(match);
       } else {
         logger.info(`Match ${match.getId()} is not ready yet`);
