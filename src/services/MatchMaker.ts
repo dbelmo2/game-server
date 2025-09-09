@@ -63,7 +63,6 @@ class Matchmaker {
           player.name, 
           player.region, 
           matchId, 
-          this.removeMatch.bind(this),
           this.setDisconnectedPlayer.bind(this),
           this.removeDisconnectedPlayer.bind(this),
         );
@@ -109,20 +108,20 @@ class Matchmaker {
   }
 
   private serverLoop = () => {
-    for (const match of this.matches.values()) {
+    // Create a copy of the matches to handle safely during iteration
+    const matchesToProcess = Array.from(this.matches.entries());
+    for (const [matchId, match] of matchesToProcess) {
       const shouldRemove = match.getShouldRemove();
       if (match.getIsReady() && shouldRemove === false) {
-
-
         if (this.showisLive) {
           match.informShowIsLive();
         }
-          match.update();
+        match.update();
       } else if (shouldRemove) {
-        logger.info(`Calling remove match from server loop for match ${match.getId()}`);
+        logger.info(`Calling remove match from server loop for match ${matchId}`);
         this.removeMatch(match);
       } else {
-        logger.info(`Match ${match.getId()} is not ready yet`);
+        logger.info(`Match ${matchId} is not ready yet`);
       }
     }
 
@@ -141,13 +140,23 @@ class Matchmaker {
 
 
   private removeMatch = (match: Match) => {
-      logger.info(`Removing match ${match.getId()}`);
+      const matchId = match.getId();
+      logger.info(`Removing match ${matchId}`);  
+
+      if (!this.matches.has(matchId)) {
+        logger.warn(`Match ${matchId} already removed from matchmaker`);
+        return; // Exit early if already removed
+      }
       for (const playerId of match.getPlayerIds()) {
         this.removeDisconnectedPlayer(playerId);
       }
+      
+      // Remove from map first to prevent recursion
+      this.matches.delete(matchId);
+      
+      // Then clean up resources
       match.cleanUpSession();
-      this.matches.delete(match.getId());
-      logger.info(`Match ${match.getId()} removed from matchmaker`);
+      logger.info(`Match ${matchId} removed from matchmaker`);
   } 
 
 

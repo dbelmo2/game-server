@@ -146,7 +146,6 @@ export class Match {
     firstPlayerName: string,
     region: Region,
     id = `match-${Math.random().toString(36).substring(2, 8)}`,
-    private removeMatchCallback: (match: Match) => void,
     private setDisconnectedPlayerCallback: (playerId: string, matchId: string, timeoutId: NodeJS.Timeout) => void,
     private removeDisconnectedPlayerCallback: (playerId: string) => void
   ) {
@@ -331,7 +330,6 @@ export class Match {
     this.socketIdToPlayerId.clear();
     this.playerIdToSocketId.clear();
 
-    this.removeMatchCallback(this);
     logger.info(`Match ${this.id} ended and cleaned up \n\n`);
   }
 
@@ -693,10 +691,11 @@ export class Match {
       this.socketIdToPlayerId.delete(socketId);
       this.playerIdToSocketId.delete(playerId);
 
-      // Check if we need to clean up the match
+      // Check if we need to mark the match for removal
       if (this.worldState.players.size === 0) {
-        logger.info(`All players left match ${this.id}. Cleaning up.`);
+        logger.info(`All players left match ${this.id}. Marking for removal.`);
         this.shouldRemove = true;
+        // Let the server loop handle the actual removal
       }
   }
   
