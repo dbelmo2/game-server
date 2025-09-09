@@ -51,6 +51,11 @@ class Matchmaker {
         } else {
           const { timeoutId } = disconnectedPlayer;
           match.rejoinPlayer(player.socket, player.id, timeoutId);
+          player.socket.emit('rejoinedMatch', { 
+            matchId: match.getId(), 
+            region: player.region 
+          });
+          this.removeDisconnectedPlayer(player.id);
         }
         player.socket.join(match.getId());
 
