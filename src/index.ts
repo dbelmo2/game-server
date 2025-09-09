@@ -52,6 +52,10 @@ app.use('/api', routes);
 
 io.on('connection', connectionHandler);
 
+io.on('disconnect', (socket) => {
+  logger.info(`Socket disconnected: ${socket.id}`);
+});
+
 const PORT = config.PORT;
 server.listen(PORT, () => {
   logger.info(`Server is running on port ${PORT}`);
