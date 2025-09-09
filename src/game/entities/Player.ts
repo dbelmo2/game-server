@@ -59,7 +59,6 @@ export class Player {
 
 
   public queueInput(input: InputPayload): void {
-    console.log('queuing input from player', this.name, input);
     this.inputQueue.push(input);
     this.lastInputTimestamp = Date.now();
   }
