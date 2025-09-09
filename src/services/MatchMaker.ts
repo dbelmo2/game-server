@@ -21,12 +21,14 @@ type QueuedPlayer = {
 
 class Matchmaker {
   private matches: Map<string, Match>;
+  private disconnectedPlayers: Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>;
   private lastBroadcast: number = Date.now();
   private showisLive: boolean = false; // This should be set based on your application logic
 
   // TODO: Somehow, inform players that the show is live. Either in game loop or elsewhere
   
   constructor() {
+    this.disconnectedPlayers = new Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>();
     this.matches = new Map<string, Match>();
     this.serverLoop();
   }
@@ -36,26 +38,65 @@ class Matchmaker {
   }
 
   public enqueuePlayer(player: QueuedPlayer) {
-    const match = this.findMatchInRegion(player.region);
+    try {
+      const { match, disconnectedPlayer }  = this.findMatchInRegion(player.region, player.id);
+      if (match) {
+        logger.info(`Adding player ${player.id} to existing match ${match.getId()} in region ${player.region}`);
+        if (!disconnectedPlayer) {
+          match.addPlayer(player.socket, player.id, player.name);
+          player.socket.emit('matchFound', { 
+            matchId: match.getId(), 
+            region: player.region 
+          });
+        } else {
+          const { timeoutId } = disconnectedPlayer;
+          match.rejoinPlayer(player.socket, player.id, timeoutId);
+        }
+        player.socket.join(match.getId());
 
-    if (match) {
-      logger.info(`Adding player ${player.id} to existing match ${match.getId()} in region ${player.region}`);
-      match.addPlayer(player.socket, player.name);
-      player.socket.join(match.getId());
-      player.socket.emit('matchFound', { 
-        matchId: match.getId(), 
-        region: player.region 
-      });
-    } else {
-      logger.info(`Creating new match for player ${player.id} in region ${player.region}`);
-      const matchId = this.generateMatchId();
-      const newMatch = new Match(player.socket, player.region, matchId, this.matches, player.name);
-      this.matches.set(matchId, newMatch);
-      player.socket.join(matchId);
-      player.socket.emit('matchFound', { 
-        matchId, 
-        region: player.region 
-      });
+      } else {
+        logger.info(`Creating new match for player ${player.id} in region ${player.region}`);
+        const matchId = this.generateMatchId();
+        const newMatch = new Match(
+          player.id, 
+          player.socket, 
+          player.name, 
+          player.region, 
+          matchId, 
+          this.removeMatch.bind(this),
+          this.setDisconnectedPlayer.bind(this),
+          this.removeDisconnectedPlayer.bind(this),
+        );
+        this.matches.set(matchId, newMatch);
+        player.socket.join(matchId);
+        player.socket.emit('matchFound', { 
+          matchId, 
+          region: player.region 
+        });
+      }
+    } catch (error) {
+        logger.error(`Error enqueuing player ${player.id}: ${error}`);
+        player.socket.emit('error', { message: 'Internal server error while joining match' });
+        player.socket.disconnect(true);
+    }
+  }
+  private setDisconnectedPlayer(playerId: string, matchId: string, timeoutId: NodeJS.Timeout) {
+    if (this.disconnectedPlayers.has(playerId)) {
+      clearTimeout(this.disconnectedPlayers.get(playerId)!.timeoutId);
+      logger.info(`Cleared existing disconnect timeout for player ${playerId}`);
+    }
+
+    this.disconnectedPlayers.set(playerId, { timeoutId, matchId });
+    logger.info(`Player ${playerId} disconnected from match ${matchId}`);
+  }
+
+  private removeDisconnectedPlayer(playerId: string) {
+    if (this.disconnectedPlayers.has(playerId)) {
+      clearTimeout(this.disconnectedPlayers.get(playerId)!.timeoutId);
+      logger.info(`Cleared disconnect timeout for player ${playerId}`);
+      this.disconnectedPlayers.delete(playerId);
+      logger.info(`Player ${playerId} reconnected and removed from disconnected list`);
+      return;
     }
   }
 
@@ -78,9 +119,7 @@ class Matchmaker {
         }
           match.update();
       } else if (shouldRemove) {
-        match.cleanUpSession();
-        this.removeMatch(match.getId());
-        logger.info(`Match ${match.getId()} removed from matchmaker`);
+        this.removeMatch(match);
       } else {
         logger.info(`Match ${match.getId()} is not ready yet`);
       }
@@ -99,23 +138,43 @@ class Matchmaker {
     setTimeout(this.serverLoop, 4);    
   }
 
-  private findMatchInRegion(region: Region): Match | null {
-    for (const match of this.matches.values()) {
-      if (match.getRegion() === region && match.getNumberOfPlayers() < config.MAX_PLAYERS_PER_MATCH) {
-        return match;
+
+  private removeMatch = (match: Match) => {
+      for (const playerId of match.getPlayerIds()) {
+        this.removeDisconnectedPlayer(playerId);
+      }
+      match.cleanUpSession();
+      this.matches.delete(match.getId());
+      logger.info(`Match ${match.getId()} removed from matchmaker`);
+  } 
+
+
+  private findMatchInRegion(region: Region, playerId: string): {  match?: Match,  disconnectedPlayer?: { timeoutId: NodeJS.Timeout } } {
+    // If the player is reconnecting, prioritize that
+    if (this.disconnectedPlayers.has(playerId)) {
+      const disconnectedPlayerData = this.disconnectedPlayers.get(playerId)!;
+      const match = this.matches.get(disconnectedPlayerData.matchId);
+      if (match) {
+        logger.info(`Reconnecting player ${playerId} to match ${disconnectedPlayerData.matchId}`);
+        return { match, disconnectedPlayer: disconnectedPlayerData };
       }
     }
-    return null;
+
+    // Else returnt the first available match in the region with space
+    for (const match of this.matches.values()) {
+      if (match.getRegion() === region && match.getNumberOfPlayers() < config.MAX_PLAYERS_PER_MATCH) {
+        logger.info(`Found available match ${match.getId()} for player ${playerId}`);
+        return { match };
+      }
+    }
+
+    return {};
   }
 
   private generateMatchId(): string {
     return `match-${Math.random().toString(36).substring(2, 8)}`;
   }
 
-  private removeMatch(matchId: string) {
-    this.matches.delete(matchId);
-    logger.info(`Match ${matchId} removed from matchmaker`);
-  }
 }
 
 const matchMaker = new Matchmaker();

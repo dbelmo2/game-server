@@ -2,7 +2,6 @@ import logger from '../../utils/logger';
 import { Platform } from './Platform';
 import { InputPayload } from '../../services/Match';
 import { Vector2 } from '../systems/Vector';
-
 export interface PlayerState {
   id: string;
   position: Vector2;
@@ -40,20 +39,21 @@ export class Player {
   private isShooting = false; // Track if the player is shooting
   private lastInputTimestamp: number = Date.now(); // Timestamp of the last input
   public afkRemoveTimer: NodeJS.Timeout | undefined; // Timer for AFK removal
+  private isDisconnected: boolean = false; // Track if player is temporarily disconnected
   
 
   // Physics constants
   constructor(
-    id: string, 
+    id: string,
+    name: string,
     x: number, 
     y: number, 
-    name: string, 
     gameBounds: { left: number; right: number; top: number; bottom: number } | null = null
   ) {
     this.id = id;
+    this.name = name;
     this.x = x;
     this.y = y;
-    this.name = name;
     this.gameBounds = gameBounds;
   }
 
@@ -359,5 +359,22 @@ export class Player {
 
   public isShootingActive(): boolean {
     return this.isShooting;
+  }
+
+  public getIsDisconnected(): boolean {
+    return this.isDisconnected;
+  }
+
+  public setDisconnected(value: boolean): void {
+    this.isDisconnected = value;
+  }
+
+  public destroy(): void {
+    // Clean up resources, listeners, etc.
+    if (this.afkRemoveTimer) {
+      clearTimeout(this.afkRemoveTimer);
+    } 
+    this.inputQueue = [];
+    logger.info(`Destroyed player ${this.name} (UUID: ${this.id}) and cleaned up resources.`);
   }
 }
