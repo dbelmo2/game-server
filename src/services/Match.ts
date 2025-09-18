@@ -461,6 +461,9 @@ export class Match {
       }
       // Move shoot handling and toggleBystander to PlayerInput event.
       socket.on('toggleBystander', () => this.handleToggleBystander(playerUUID));
+      socket.on('connection_error', (err) => {
+        logger.error(`Connection error for player ${playerUUID} in match ${this.id}: ${err.message}`);
+      });
       socket.on('disconnect', (reason) => this.handlePlayerDisconnect(socket, playerUUID, reason));
       socket.on('ping', (callback) => this.handlePing(callback));
       socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(playerUUID, inputPayload));
