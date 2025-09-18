@@ -293,7 +293,6 @@ export class Match {
                 playerSocket.emit('afkRemoved', { message: 'You have been removed from the match due to inactivity.' });
                 playerSocket.disconnect(true);
                 this.timeoutIds.delete(player.afkRemoveTimer!);
-                // TODO: Do we want to clean up the player from the game state here?
               }, 10000); // Wait 10 seconds before removing
 
               this.timeoutIds.add(player.afkRemoveTimer)
@@ -322,6 +321,16 @@ export class Match {
       socket.removeAllListeners();
     }
     
+
+    
+    for (const player of this.worldState.players.values()) {
+      player.destroy();
+    }
+
+    for (const projectile of this.worldState.projectiles) {
+      projectile.destroy();
+    }
+
     // Clear all game state
     this.worldState.players.clear();
     this.worldState.projectiles = [];
@@ -329,6 +338,14 @@ export class Match {
     this.playerScores.clear();
     this.socketIdToPlayerId.clear();
     this.playerIdToSocketId.clear();
+    this.respawnQueue.clear();
+
+
+
+
+
+    this.setDisconnectedPlayerCallback = () => {};
+    this.removeDisconnectedPlayerCallback = () => {};
 
     logger.info(`Match ${this.id} ended and cleaned up \n\n`);
   }
@@ -429,13 +446,19 @@ export class Match {
   
   private setUpPlayerSocketHandlers(sockets: Socket[]) {
     for (const socket of sockets) {
+
+
+      socket.removeAllListeners('toggleBystander');
+      socket.removeAllListeners('disconnect');
+      socket.removeAllListeners('ping');
+      socket.removeAllListeners('playerInput');
+      socket.removeAllListeners('projectileHit');
+
       const playerUUID = this.socketIdToPlayerId.get(socket.id);
-      
       if (!playerUUID) {
         logger.error(`Cannot set up socket handlers for socket ${socket.id} - no UUID mapping found`);
         continue;
       }
-      
       // Move shoot handling and toggleBystander to PlayerInput event.
       socket.on('toggleBystander', () => this.handleToggleBystander(playerUUID));
       socket.on('disconnect', (reason) => this.handlePlayerDisconnect(socket, playerUUID, reason));
@@ -574,29 +597,30 @@ export class Match {
       this.integratePlayerInputs(dt);
   
       // Process projectile updates
-      const projectilesToRemove: number[] = [];
-      for (let i = 0; i < this.worldState.projectiles.length; i++) {
-        const projectile = this.worldState.projectiles[i];
-        projectile.update();
-        
+      this.worldState.projectiles = this.worldState.projectiles.filter(
+        projectile => {
+          projectile.update();
+          
         // Check expired projectiles
-        if (projectile.shouldBeDestroyed) {
-          logger.debug(`Projectile ${projectile.getId()} expired`);
-          projectilesToRemove.push(i);
-          continue;
-        }
-        
-        // Check for collisions only if match is active
-        if (this.matchIsActive) {
-          //this.checkProjectileCollisions(i, projectile, projectilesToRemove);
-        }
-      }
+          if (projectile.shouldBeDestroyed) {
+            logger.debug(`Projectile ${projectile.getId()} expired`);
+            return false;
+          }
 
-      // Remove projectiles after processing
-      for (let i = projectilesToRemove.length - 1; i >= 0; i--) {
-        this.worldState.projectiles.splice(projectilesToRemove[i], 1);
-      }
-      
+        
+          // Check for collisions only if match is active...
+          // This is currently disabled as we dont have 
+          // server side collision detection implemented yet.
+          if (this.matchIsActive) {
+            //this.checkProjectileCollisions(i, projectile, projectilesToRemove);
+          }
+
+          return true; // Keep projectile if not expired
+          
+        });
+      // Check win condition
+      this.checkWinCondition();
+
     } catch (error) {
       this.handleError(error as Error, 'fixedUpdate');
     }
@@ -683,6 +707,10 @@ export class Match {
         logger.warn(`Player UUID ${playerId} not found in match ${this.id} during removal process`);
       }
       player?.destroy();
+
+      this.respawnQueue.delete(playerId);
+      
+
       // Actually remove the player now
       this.worldState.players.delete(playerId);
       this.playerScores.delete(playerId);
@@ -782,6 +810,7 @@ export class Match {
     logger.info(`Resetting match ${this.id} for a new round`);
 
     // Clear all active projectiles
+    this.worldState.projectiles.forEach(p => p.destroy());
     this.worldState.projectiles = [];
     
     // Reset player health and scores but maintain positions and bystander status

@@ -24,8 +24,6 @@ class Matchmaker {
   private disconnectedPlayers: Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>;
   private lastBroadcast: number = Date.now();
   private showisLive: boolean = false; // This should be set based on your application logic
-
-  // TODO: Somehow, inform players that the show is live. Either in game loop or elsewhere
   
   constructor() {
     this.disconnectedPlayers = new Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>();

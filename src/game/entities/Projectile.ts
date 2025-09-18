@@ -19,6 +19,7 @@ export class Projectile  {
   private ownerId: string;
   protected gravityEffect: number;
   public shouldBeDestroyed = false;
+  private deathId: NodeJS.Timeout | null = null;
 
   protected calculateVelocity(spawnX: number, spawnY: number, targetX: number, targetY: number): void {
     const dx = targetX - spawnX;
@@ -71,12 +72,15 @@ export class Projectile  {
 
   destroy() {
     // Call the superclass destroy method
+    if (this.deathId) {
+        clearTimeout(this.deathId);
+    }
   }
 
   age() {
-    setTimeout(() => {
+    this.deathId = setTimeout(() => {
         this.shouldBeDestroyed = true;
-    }, this.lifespan)
+    }, this.lifespan);
   }
 
   public getId(): string {
