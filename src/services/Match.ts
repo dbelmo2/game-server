@@ -464,6 +464,12 @@ export class Match {
       socket.on('connection_error', (err) => {
         logger.error(`Connection error for player ${playerUUID} in match ${this.id}: ${err.message}`);
       });
+      socket.on('connection_timeout', (err) => {
+        logger.error(`Connection timeout for player ${playerUUID} in match ${this.id}: ${err.message}`);
+      });
+      socket.on('reconnect_error', (err) => {
+        logger.error(`Reconnect error for player ${playerUUID} in match ${this.id}: ${err.message}`);
+      });
       socket.on('disconnect', (reason) => this.handlePlayerDisconnect(socket, playerUUID, reason));
       socket.on('ping', (callback) => this.handlePing(callback));
       socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(playerUUID, inputPayload));
