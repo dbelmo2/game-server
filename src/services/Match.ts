@@ -572,8 +572,9 @@ export class Match {
         this.worldState.players.set(playerId, respawningPlayer);
       }
 
-  
+    
       for (const socket of this.sockets) {
+        logger.info(`Emitting gameOver event to player socket ${socket.id} in match ${this.id}`);
         socket.emit('gameOver', sortedScores);
       }
 
@@ -858,9 +859,8 @@ export class Match {
         deaths: 0,
         name: player.getName()
       });
-        logger.info(`Match ${this.id} reset complete with ${this.worldState.players.size} players`);
-
     }
+    logger.info(`Match ${this.id} reset complete with ${this.worldState.players.size} players`);
     // Inform players of match reset
     for (const socket of this.sockets) {
       socket.emit('matchReset', {
