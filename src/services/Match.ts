@@ -154,7 +154,6 @@ export class Match {
     private removeDisconnectedPlayerCallback: (playerId: string) => void
   ) {
     this.id = id;
-    this.sockets = [firstPlayerSocket];
     this.region = region;
     this.initializePlatforms()
     this.addPlayer(firstPlayerSocket, firstPlayerId, firstPlayerName);
@@ -166,6 +165,12 @@ export class Match {
   }
 
   public addPlayer(socket: Socket, playerId: string, name: string): void {
+
+    if (this.sockets.some(s => s.id === socket.id)) {
+      logger.warn(`Socket ${socket.id} is already connected to match ${this.id}`);
+      return;
+    }
+
     this.sockets.push(socket);
     
     // Get the player's UUID from socket authentication
