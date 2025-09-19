@@ -319,6 +319,12 @@ export class Match {
     for (const id of this.timeoutIds) {
       clearTimeout(id);
     }
+    
+    // Explicitly clear match reset timeout
+    if (this.matchResetTimeout) {
+      clearTimeout(this.matchResetTimeout);
+      this.matchResetTimeout = null;
+    }
 
     // Remove event listeners from sockets
     for (const socket of this.sockets) {
@@ -516,6 +522,11 @@ export class Match {
   }
 
   private checkWinCondition() {
+    // If match is already inactive or reset timeout is set, don't check win condition again
+    if (!this.matchIsActive || this.matchResetTimeout) {
+      return;
+    }
+    
     const sortedScores = Array.from(this.playerScores.entries())
       .map(([playerId, score]) => ({
         playerId,
@@ -568,9 +579,12 @@ export class Match {
 
       this.respawnQueue.clear();
 
-      // Reset match.
-      this.matchResetTimeout = setTimeout(() => this.resetMatch(), 10000); // Wait 5 seconds before resetting
-      this.timeoutIds.add(this.matchResetTimeout);
+      // Reset match - ensure we don't set multiple timeouts
+      if (!this.matchResetTimeout) {
+        logger.info(`Setting up match reset timeout for match ${this.id}`);
+        this.matchResetTimeout = setTimeout(() => this.resetMatch(), 10000); // Wait 10 seconds before resetting
+        this.timeoutIds.add(this.matchResetTimeout);
+      }
 
 
     }
