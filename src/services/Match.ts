@@ -91,7 +91,9 @@ broadcasting gamesate with laasdt player input tick: 1931
 In these example logs, for the client, the jump occured at y = 1080, but at 1927, y was 1067.9166666666667
 matching the server position.
 
-
+TODO: fix lingering players bug where a player disconnects but is still in the match...
+perhaphs, instead of adding an afk timeout, we update when the last update was received and if its been more than 60 seconds, we remove them.
+We would check in the main game loop
 
 
 
@@ -112,6 +114,8 @@ export class Match {
     bottom: this.GAME_HEIGHT
   };
 
+
+  private matchResetTimeout: NodeJS.Timeout | null = null;
   private AFK_THRESHOLD_MS = 60000; // 60 seconds of inactivity
   private DISCONNECT_GRACE_PERIOD_MS = 20000; // 20 seconds to reconnect before removal
 
@@ -565,7 +569,10 @@ export class Match {
       this.respawnQueue.clear();
 
       // Reset match.
-      setTimeout(() => this.resetMatch(), 10000); // Wait 5 seconds before resetting
+      this.matchResetTimeout = setTimeout(() => this.resetMatch(), 10000); // Wait 5 seconds before resetting
+      this.timeoutIds.add(this.matchResetTimeout);
+
+
     }
   }
 
@@ -817,7 +824,11 @@ export class Match {
 
   private resetMatch(): void {
     logger.info(`Resetting match ${this.id} for a new round`);
-
+    if (this.matchResetTimeout) {
+      clearTimeout(this.matchResetTimeout);
+      this.timeoutIds.delete(this.matchResetTimeout);
+      this.matchResetTimeout = null;
+    }
     // Clear all active projectiles
     this.worldState.projectiles.forEach(p => p.destroy());
     this.worldState.projectiles = [];
