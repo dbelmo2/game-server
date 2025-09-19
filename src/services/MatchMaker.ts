@@ -39,7 +39,7 @@ class Matchmaker {
     try {
       const { match, disconnectedPlayer }  = this.findMatchInRegion(player.region, player.id);
       if (match) {
-        logger.info(`Adding player ${player.id} to existing match ${match.getId()} in region ${player.region}`);
+        logger.info(`Adding player ${player.id} with socket ${player.socket.id} to existing match ${match.getId()} in region ${player.region}`);
         if (!disconnectedPlayer) {
           match.addPlayer(player.socket, player.id, player.name);
           player.socket.emit('matchFound', { 
@@ -58,7 +58,7 @@ class Matchmaker {
         player.socket.join(match.getId());
 
       } else {
-        logger.info(`Creating new match for player ${player.id} in region ${player.region}`);
+        logger.info(`Creating new match for player ${player.id} with socket ${player.socket.id} in region ${player.region}`);
         const matchId = this.generateMatchId();
         const newMatch = new Match(
           player.id, 
