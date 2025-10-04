@@ -442,9 +442,11 @@ export class Match {
 
   }
 
-  private handlePing(callback: () => void): void {
-      callback();
+  private handlePing(socket: Socket, data: any): void {
+    socket.emit('pong', data);
   }
+
+
 
   
 
