@@ -486,7 +486,7 @@ export class Match {
         logger.error(`Reconnect error for player ${playerUUID} in match ${this.id}: ${err.message}`);
       });
       socket.on('disconnect', (reason) => this.handlePlayerDisconnect(socket, playerUUID, reason));
-      socket.on('ping', (callback) => this.handlePing(callback));
+      socket.on('m-ping', (data) => this.handlePing(socket, data));
       socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(playerUUID, inputPayload));
       socket.on('projectileHit', (enemyId) => this.handleProjectileHit(playerUUID, enemyId));
     }
