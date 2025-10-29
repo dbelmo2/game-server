@@ -443,7 +443,7 @@ export class Match {
   }
 
   private handlePing(socket: Socket, data: any): void {
-    socket.emit('pong', data);
+    socket.emit('m-pong', data);
   }
 
 
