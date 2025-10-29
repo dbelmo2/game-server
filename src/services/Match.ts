@@ -443,6 +443,7 @@ export class Match {
   }
 
   private handlePing(socket: Socket, data: any): void {
+    logger.info(`Received m-ping from socket ${socket.id} in match ${this.id}`);
     socket.emit('m-pong', data);
   }
 
