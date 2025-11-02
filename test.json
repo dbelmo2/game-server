@@ -1,0 +1,61 @@
+[
+    "stateUpdate",
+    {
+        "serverTick": 397,
+        "players": [
+            {
+                "id": "e2b1fb20-5a78-431a-b6b2-fcb8c58bdc10",
+                "hp": 100,
+                "name": "test",
+                "isBystander": true,
+                "velocity": {
+                    "x": 0,
+                    "y": 0
+                },
+                "position": {
+                    "x": 500,
+                    "y": 580
+                },
+                "isOnGround": false,
+                "tick": 355,
+                "vx": 0,
+                "vy": 0,
+                "isDisconnected": true
+            },
+            {
+                "id": "be385651-a5de-4356-9ba8-4995b93b7f74",
+                "hp": 100,
+                "name": "test",
+                "isBystander": true,
+                "velocity": {
+                    "x": 0,
+                    "y": 0
+                },
+                "position": {
+                    "x": 100,
+                    "y": 580
+                },
+                "isOnGround": false,
+                "tick": 112,
+                "vx": 0,
+                "vy": 0,
+                "isDisconnected": false
+            }
+        ],
+        "projectiles": [],
+        "scores": [
+            {
+                "playerId": "e2b1fb20-5a78-431a-b6b2-fcb8c58bdc10",
+                "kills": 0,
+                "deaths": 0,
+                "name": "test"
+            },
+            {
+                "playerId": "be385651-a5de-4356-9ba8-4995b93b7f74",
+                "kills": 0,
+                "deaths": 0,
+                "name": "test"
+            }
+        ]
+    }
+]

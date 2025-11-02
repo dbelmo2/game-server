@@ -8,11 +8,9 @@ import {
   PLAYER_WIDTH,
   PLAYER_HEIGHT
 } from '../game/systems/collision';
-import { Player, PlayerState } from '../game/entities/Player';
+import { Player, PlayerState, PlayerStateBroadcast } from '../game/entities/Player';
 import { Platform } from '../game/entities/Platform';
-import { Controller } from '../game/systems/PlayerController';
-import { Vector2 } from '../game/systems/Vector';
-import { error } from 'console';
+import { InputVector } from '../game/systems/Vector';
 
 
 // TODO:
@@ -45,20 +43,9 @@ export type WorldState = {
 
 };
 
-export type PlayerStatePayload = {
-  id: string;
-  position: Vector2;
-  hp: number;
-  isBystander: boolean;
-  name: string;
-  velocity: Vector2;
-  tick: number;
-
-}
-
 export type InputPayload = {
   tick: number;
-  vector: Vector2;
+  vector: InputVector;
 }
 
 const MAX_KILL_AMOUNT = 3; // Adjust this value as needed
@@ -125,7 +112,8 @@ export class Match {
     projectiles: [],
     platforms: [],
   };
-  
+
+  private lastSentPlayerStates: Map<string, PlayerState> = new Map();
   
   // Map socket IDs to player UUIDs for tracking connections/reconnections
   private socketIdToPlayerId: Map<string, string> = new Map();
@@ -182,6 +170,7 @@ export class Match {
     // This is a new player
     const serverPlayer = new Player(
       playerId, // Use UUID instead of socket.id
+    
       name, 
       this.STARTING_X,
       this.STARTING_Y,
@@ -223,6 +212,7 @@ export class Match {
       this.removeDisconnectedPlayerCallback(playerId);
       throw new Error(`Player ${playerId} not found in match ${this.id}`);
     }
+    
     player.setDisconnected(false);
     clearTimeout(timeoutId);
     this.timeoutIds.delete(timeoutId);
@@ -336,8 +326,6 @@ export class Match {
       socket.removeAllListeners();
     }
     
-
-    
     for (const player of this.worldState.players.values()) {
       player.destroy();
     }
@@ -379,7 +367,7 @@ export class Match {
         if (!inputPayload) {
           numIntegrations = max; // No more inputs to process
           const lastProcessedInput = player.getLastProcessedInput();
-          const lastProcessedInputVector = lastProcessedInput?.vector ?? new Vector2(0, 0);
+          const lastProcessedInputVector = lastProcessedInput?.vector ?? { x: 0, y: 0 };
           // Reset y to 0 to avoid predicted double jump issues.
           // This does not cause issues as there is no realistic scenario where a player intends to
           // send two jump inputs in a row. Therefore we know we will never need to predict this scenario.
@@ -609,6 +597,7 @@ export class Match {
         .map((projectile) => projectile.getState());
 
       const playerStates = this.getPlayerStates();
+
       const gameState = {
         serverTick: this.serverTick,
         players: playerStates,
@@ -890,19 +879,36 @@ export class Match {
     // Could add additional error handling logic here
   }
 
-  private getPlayerStates(): PlayerState[] {
-    const states = [];
+  private getPlayerStates(): PlayerStateBroadcast[] {
+    const states: PlayerStateBroadcast[] = [];
     for (const player of this.worldState.players.values()) {
       const state = player.getLatestState();
       if (state) {
         // Add disconnected flag to player state
-        const extendedState = {
-          ...state,
-          isDisconnected: player.getIsDisconnected()
+        
+        const lastKnownState = this.lastSentPlayerStates.get(player.getId());
+        const updatedState: PlayerStateBroadcast = {
+          sessionId: state.id,
+          tick: state.tick
         };
-        states.push(extendedState);
+        for (const key of Object.keys(state)) {
+          if (lastKnownState && (lastKnownState as any)[key] === (state as any)[key]) {
+            // No change in this key, skip sending update
+
+            continue;
+          } else {
+            // Change detected, break out of loop to send full state
+            Object.assign(updatedState, state);
+          }
+        }
+
+
+        this.lastSentPlayerStates.set(player.getId(), updatedState);
+        states.push(updatedState);
       }
     }
     return states;
+
+
   }
 }

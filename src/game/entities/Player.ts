@@ -1,19 +1,35 @@
 import logger from '../../utils/logger';
 import { Platform } from './Platform';
 import { InputPayload } from '../../services/Match';
-import { Vector2 } from '../systems/Vector';
+import { InputVector, PositionVector } from '../systems/Vector';
 export interface PlayerState {
   id: string;
-  position: Vector2;
+  position: PositionVector;
   hp: number;
   isBystander: boolean;
   name: string;
-  velocity: Vector2;
+  velocity: PositionVector;
   isOnGround?: boolean;
   tick: number; 
   vx: number; // Horizontal velocity
   vy: number; // Vertical velocity
+  isDisconnected: boolean
 }
+
+export interface PlayerStateBroadcast {
+  sessionId: string;
+  tick: number; 
+  position?: PositionVector;
+  hp?: number;
+  isBystander?: boolean;
+  name?: string;
+  velocity?: PositionVector;
+  isOnGround?: boolean;
+  vx?: number; // Horizontal velocity
+  vy?: number; // Vertical velocity
+  isDisconnected?: boolean;
+}
+
 export class Player {
   public readonly SPEED = 750;
   public readonly JUMP_STRENGTH = 750;
@@ -23,7 +39,7 @@ export class Player {
   private hp: number = 100;
   private x: number;
   private y: number;
-  private velocity: Vector2 = new Vector2(0, 0);
+  private velocity: PositionVector = { x: 0, y: 0 };
   private isBystander: boolean = true;
   private name: string;
   private isOnGround: boolean = false;
@@ -34,7 +50,7 @@ export class Player {
   private lastProcessedInput: InputPayload | null = null;
   private gameBounds: { left: number; right: number; top: number; bottom: number } | null = null;
   private numTicksWithoutInput: number = 0;
-  private InputDebt: Vector2[] = [];
+  private InputDebt: InputVector[] = [];
   private lastKnownState: PlayerState | null = null;
   private isShooting = false; // Track if the player is shooting
   private lastInputTimestamp: number = Date.now(); // Timestamp of the last input
@@ -88,7 +104,7 @@ export class Player {
   private isJumping = false;
   private indexPostJump = 0
 
-  update(inputVector: Vector2, dt: number, localTick: number, scenario: string): void {
+  update(inputVector: InputVector, dt: number, localTick: number, scenario: string): void {
       //console.log(`player position: ${this.x}, ${this.y}`);
       // 1. First we update our velocity vector based on input and physics.
       // Horizontal Movement
@@ -167,7 +183,7 @@ export class Player {
       this.velocity.y = Math.min(this.velocity.y, this.MAX_FALL_SPEED); 
   }
 
-  private jump(inputVector: Vector2): void {
+  private jump(inputVector: InputVector): void {
     if (this.isOnSurface) {
         // First jump from ground/platform
         this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
@@ -226,12 +242,12 @@ export class Player {
     this.isBystander = value;
   }
 
-  
-  public addInputDebt(inputVector: Vector2): void {
+
+  public addInputDebt(inputVector: InputVector): void {
     this.InputDebt.push(inputVector);
   } 
 
-  public peekInputDebt(): Vector2 | undefined {
+  public peekInputDebt(): InputVector | undefined {
     if (this.InputDebt.length === 0) {
       return undefined;
     }
@@ -242,7 +258,7 @@ export class Player {
     this.InputDebt = [];
   }
 
-  public popInputDebt(): Vector2 | undefined {
+  public popInputDebt(): InputVector | undefined {
     if (this.InputDebt.length === 0) {
       return undefined;
     }
@@ -305,7 +321,7 @@ export class Player {
   }
 
 
-  public isAfk(vector: Vector2): boolean {
+  public isAfk(vector: InputVector): boolean {
     if (vector.x === 0 && vector.y === 0 && this.isOnSurface) {
       return true;
     }
@@ -327,11 +343,12 @@ export class Player {
       name: this.name,
       isBystander: this.isBystander,
       velocity: this.velocity,
-      position: new Vector2(this.x, this.y),
+      position: { x: this.x, y: this.y },
       isOnGround: this.isOnGround,
       tick: latestProcessedTick,
       vx: this.velocity.x,
-      vy: this.velocity.y
+      vy: this.velocity.y,
+      isDisconnected: this.getIsDisconnected()
     }
   }
 
