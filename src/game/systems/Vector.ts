@@ -6,7 +6,7 @@ export interface PositionVector {
 export interface InputVector {
   x: number;
   y: number;
-  mouse?: { x: number; y: number, id?: string };
+  mouse?: { x: number; y: number; id: string };
 }
 
 export class Vector2 {

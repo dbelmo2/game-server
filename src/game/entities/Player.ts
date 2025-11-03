@@ -11,23 +11,17 @@ export interface PlayerState {
   velocity: PositionVector;
   isOnGround?: boolean;
   tick: number; 
-  vx: number; // Horizontal velocity
-  vy: number; // Vertical velocity
   isDisconnected: boolean
 }
 
 export interface PlayerStateBroadcast {
-  sessionId: string;
+  id: string;
   tick: number; 
   position?: PositionVector;
   hp?: number;
   isBystander?: boolean;
   name?: string;
   velocity?: PositionVector;
-  isOnGround?: boolean;
-  vx?: number; // Horizontal velocity
-  vy?: number; // Vertical velocity
-  isDisconnected?: boolean;
 }
 
 export class Player {
@@ -346,10 +340,17 @@ export class Player {
       position: { x: this.x, y: this.y },
       isOnGround: this.isOnGround,
       tick: latestProcessedTick,
-      vx: this.velocity.x,
-      vy: this.velocity.y,
       isDisconnected: this.getIsDisconnected()
     }
+  }
+
+  public getLatestStateForBroadcast(): PlayerStateBroadcast | null {
+    if (!this.lastKnownState) {
+      return null;
+    }
+
+    const { isDisconnected, isOnGround, ...broadcastState } = this.lastKnownState;
+    return broadcastState;
   }
 
   public getLatestState(): PlayerState | null {

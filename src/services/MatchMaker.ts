@@ -11,11 +11,11 @@ const FRAME_MS     = 1000 / BROADCAST_HZ;  // outer‑loop cadence
 
 
 type QueuedPlayer = {
-  id: string;
   socket: Socket;
   region: Region;
   enqueuedAt: number;
   name: string;
+  id?: string;
 };
 
 
@@ -37,16 +37,22 @@ class Matchmaker {
 
   public enqueuePlayer(player: QueuedPlayer) {
     try {
-      const { match, disconnectedPlayer }  = this.findMatchInRegion(player.region, player.id);
+      const { match, disconnectedPlayer }  = this.findMatchInRegion(player.region, player?.id);
       if (match) {
-        logger.info(`Adding player ${player.id} with socket ${player.socket.id} to existing match ${match.getId()} in region ${player.region}`);
+        logger.info(`Adding player with socket ${player.socket.id} to existing match ${match.getId()} in region ${player.region}`);
         if (!disconnectedPlayer) {
-          match.addPlayer(player.socket, player.id, player.name);
+          // New player joining existing match
+          const playerId = match.addPlayer(player.socket, player.name);
           player.socket.emit('matchFound', { 
             matchId: match.getId(), 
-            region: player.region 
+            region: player.region,
+            playerId: playerId
           });
         } else {
+          // Rejoining disconnected player
+          if (!player.id) {
+            throw new Error(`Player ID is required for rejoining a match`);
+          }
           const { timeoutId } = disconnectedPlayer;
           match.rejoinPlayer(player.socket, player.id, timeoutId);
           player.socket.emit('rejoinedMatch', { 
@@ -61,7 +67,6 @@ class Matchmaker {
         logger.info(`Creating new match for player ${player.id} with socket ${player.socket.id} in region ${player.region}`);
         const matchId = this.generateMatchId();
         const newMatch = new Match(
-          player.id, 
           player.socket, 
           player.name, 
           player.region, 
@@ -73,7 +78,8 @@ class Matchmaker {
         player.socket.join(matchId);
         player.socket.emit('matchFound', { 
           matchId, 
-          region: player.region 
+          region: player.region,
+          playerId: newMatch.getPlayerIdFromSocketId(player.socket.id),
         });
       }
     } catch (error) {
@@ -163,9 +169,9 @@ class Matchmaker {
   } 
 
 
-  private findMatchInRegion(region: Region, playerId: string): {  match?: Match,  disconnectedPlayer?: { timeoutId: NodeJS.Timeout } } {
+  private findMatchInRegion(region: Region, playerId?: string): {  match?: Match,  disconnectedPlayer?: { timeoutId: NodeJS.Timeout } } {
     // If the player is reconnecting, prioritize that
-    if (this.disconnectedPlayers.has(playerId)) {
+    if (playerId && this.disconnectedPlayers.has(playerId)) {
       const disconnectedPlayerData = this.disconnectedPlayers.get(playerId)!;
       const match = this.matches.get(disconnectedPlayerData.matchId);
       if (match) {
@@ -174,7 +180,7 @@ class Matchmaker {
       }
     }
 
-    // Else returnt the first available match in the region with space
+    // Else return the first available match in the region with space
     for (const match of this.matches.values()) {
       if (match.getRegion() === region && match.getNumberOfPlayers() < config.MAX_PLAYERS_PER_MATCH) {
         logger.info(`Found available match ${match.getId()} for player ${playerId}`);

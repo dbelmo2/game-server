@@ -113,7 +113,7 @@ export class Match {
     platforms: [],
   };
 
-  private lastSentPlayerStates: Map<string, PlayerState> = new Map();
+  private lastSentPlayerStates: Map<string, PlayerStateBroadcast> = new Map();
   
   // Map socket IDs to player UUIDs for tracking connections/reconnections
   private socketIdToPlayerId: Map<string, string> = new Map();
@@ -133,7 +133,6 @@ export class Match {
   private serverTick = 0;
 
   constructor(
-    firstPlayerId: string,
     firstPlayerSocket: Socket,
     firstPlayerName: string,
     region: Region,
@@ -144,7 +143,7 @@ export class Match {
     this.id = id;
     this.region = region;
     this.initializePlatforms()
-    this.addPlayer(firstPlayerSocket, firstPlayerId, firstPlayerName);
+    this.addPlayer(firstPlayerSocket, firstPlayerName);
     this.isReady = true;
     this.matchIsActive = true;
 
@@ -152,17 +151,22 @@ export class Match {
     // Start game loop loop (this will broadcast the game state to all players)
   }
 
-  public addPlayer(socket: Socket, playerId: string, name: string): void {
 
+  public getPlayerIdFromSocketId(socketId: string): string | undefined {
+    return this.socketIdToPlayerId.get(socketId);
+  } 
+
+  public addPlayer(socket: Socket, name: string): string {
     if (this.sockets.some(s => s.id === socket.id)) {
       logger.warn(`Socket ${socket.id} is already connected to match ${this.id}`);
-      return;
+      return this.socketIdToPlayerId.get(socket.id) ?? 'unknown playerId';
     }
 
     this.sockets.push(socket);
     
-    // Get the player's UUID from socket authentication
-    
+    // Truncate the last 4 digits of the players socket.id with the last 3 of the match id and use as their playerId
+    const playerId = socket.id.slice(0, -4) + this.id.slice(-3);
+
     // Store the socket ID to UUID mapping
     this.socketIdToPlayerId.set(socket.id, playerId);
     this.playerIdToSocketId.set(playerId, socket.id);
@@ -170,7 +174,6 @@ export class Match {
     // This is a new player
     const serverPlayer = new Player(
       playerId, // Use UUID instead of socket.id
-    
       name, 
       this.STARTING_X,
       this.STARTING_Y,
@@ -201,6 +204,7 @@ export class Match {
           ...score
         }))
     });
+    return playerId;
   }
 
   public rejoinPlayer(socket: Socket, playerId: string, timeoutId: NodeJS.Timeout): void {
@@ -761,6 +765,7 @@ export class Match {
   ): void {
       player.resetShooting(); // Reset shooting state after handling input
       if (!inputPayload.vector.mouse) return
+
       const { x, y, id } = inputPayload.vector.mouse;
 
       if (player.getIsBystander()) {
@@ -768,6 +773,8 @@ export class Match {
         return;
       }      
       logger.debug(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
+      // TODO: What is the use of id going forward? Client generated projectile IDs can lead to collisions.
+      // consider server generated IDs.
       // TODO: If were not handling collision server side, this should be removed.
       const projectile = new Projectile(id, player.getId(), player.getX(), player.getY() - 50, x, y);
       this.worldState.projectiles.push(projectile);
@@ -882,26 +889,24 @@ export class Match {
   private getPlayerStates(): PlayerStateBroadcast[] {
     const states: PlayerStateBroadcast[] = [];
     for (const player of this.worldState.players.values()) {
-      const state = player.getLatestState();
+      const state = player.getLatestStateForBroadcast();
       if (state) {
         // Add disconnected flag to player state
         
         const lastKnownState = this.lastSentPlayerStates.get(player.getId());
         const updatedState: PlayerStateBroadcast = {
-          sessionId: state.id,
+          id: state.id,
           tick: state.tick
         };
         for (const key of Object.keys(state)) {
           if (lastKnownState && (lastKnownState as any)[key] === (state as any)[key]) {
             // No change in this key, skip sending update
-
             continue;
           } else {
             // Change detected, break out of loop to send full state
             Object.assign(updatedState, state);
           }
         }
-
 
         this.lastSentPlayerStates.set(player.getId(), updatedState);
         states.push(updatedState);

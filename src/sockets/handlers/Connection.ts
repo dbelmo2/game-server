@@ -6,7 +6,8 @@ import { config } from "../../config/config";
 
 export default function connectionHandler(
   socket: Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any>, 
-  io: any) {
+  io: any
+) {
   logger.info(`Socket connected: ${socket.id}`);
     // Get and log the total number of connected clients
   const connectedClients = io.engine.clientsCount;
@@ -16,7 +17,7 @@ export default function connectionHandler(
       if (config.VALID_REGIONS.includes(region)) {
         logger.info(`Valid region: ${region}, queuing player`);
         MatchMaker.enqueuePlayer({
-          id: socket.handshake.auth.uuid,
+          id: socket.id,
           name,
           socket,
           region: region as Region,
