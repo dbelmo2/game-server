@@ -903,8 +903,8 @@ export class Match {
             // No change in this key, skip sending update
             continue;
           } else {
-            // Change detected, break out of loop to send full state
-            Object.assign(updatedState, state);
+            // Add the changed key to the updated state
+            (updatedState as any)[key] = (state as any)[key];
           }
         }
 
