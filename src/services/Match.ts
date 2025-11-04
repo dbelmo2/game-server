@@ -8,7 +8,7 @@ import {
   PLAYER_WIDTH,
   PLAYER_HEIGHT
 } from '../game/systems/collision';
-import { Player, PlayerState, PlayerStateBroadcast } from '../game/entities/Player';
+import { Player, PlayerStateBroadcast, PlayerStateBroadcastUpdate } from '../game/entities/Player';
 import { Platform } from '../game/entities/Platform';
 import { InputVector } from '../game/systems/Vector';
 
@@ -886,18 +886,30 @@ export class Match {
     // Could add additional error handling logic here
   }
 
-  private getPlayerStates(): PlayerStateBroadcast[] {
-    const states: PlayerStateBroadcast[] = [];
+  private getPlayerStates(): PlayerStateBroadcastUpdate[] {
+    const states: PlayerStateBroadcastUpdate[] = [];
     for (const player of this.worldState.players.values()) {
       const state = player.getLatestStateForBroadcast();
       if (state) {
         // Add disconnected flag to player state
         
         const lastKnownState = this.lastSentPlayerStates.get(player.getId());
-        const updatedState: PlayerStateBroadcast = {
+        const updatedState: PlayerStateBroadcastUpdate = {
           id: state.id,
           tick: state.tick
         };
+      
+        if (lastKnownState === undefined || lastKnownState === null) {
+          // No last known state, send full state
+          const { isDisconnected, isOnGround, restOfState } = state;
+          this.lastSentPlayerStates.set(player.getId(), restOfState);
+          states.push(state);
+          continue;
+
+        }
+
+        const updatedLastKnownState: PlayerStateBroadcast = { ...lastKnownState };
+
         for (const key of Object.keys(state)) {
           if (lastKnownState && (lastKnownState as any)[key] === (state as any)[key]) {
             // No change in this key, skip sending update
@@ -905,10 +917,12 @@ export class Match {
           } else {
             // Add the changed key to the updated state
             (updatedState as any)[key] = (state as any)[key];
+            updatedLastKnownState[key] = (state as any)[key];
           }
+
         }
 
-        this.lastSentPlayerStates.set(player.getId(), updatedState);
+        this.lastSentPlayerStates.set(player.getId(), updatedLastKnownState);
         states.push(updatedState);
       }
     }

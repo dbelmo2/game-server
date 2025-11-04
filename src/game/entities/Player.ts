@@ -17,11 +17,23 @@ export interface PlayerState {
 export interface PlayerStateBroadcast {
   id: string;
   tick: number; 
+  position: PositionVector;
+  hp: number;
+  isBystander: boolean;
+  name: string;
+  velocity: PositionVector;
+  [key: string]: any;
+}
+
+export interface PlayerStateBroadcastUpdate {
+  id: string;
+  tick: number; 
   position?: PositionVector;
   hp?: number;
   isBystander?: boolean;
   name?: string;
   velocity?: PositionVector;
+  [key: string]: any;
 }
 
 export class Player {
@@ -344,7 +356,7 @@ export class Player {
     }
   }
 
-  public getLatestStateForBroadcast(): PlayerStateBroadcast | null {
+  public getLatestStateForBroadcast(): PlayerStateBroadcastUpdate | null {
     if (!this.lastKnownState) {
       return null;
     }
