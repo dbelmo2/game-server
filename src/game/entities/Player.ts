@@ -15,14 +15,15 @@ export interface PlayerState {
 }
 
 export interface PlayerStateBroadcast {
-  id: string;
-  tick: number; 
-  position: PositionVector;
-  hp: number;
-  isBystander: boolean;
-  name: string;
-  velocity: PositionVector;
-  [key: string]: any;
+    id: string,
+    x: number,
+    y: number,
+    hp: number,
+    by: boolean,
+    name: string,
+    vx: number,
+    tick: number,
+    vy: number,
 }
 
 export interface PlayerStateBroadcastUpdate {
@@ -354,15 +355,6 @@ export class Player {
       tick: latestProcessedTick,
       isDisconnected: this.getIsDisconnected()
     }
-  }
-
-  public getLatestStateForBroadcast(): PlayerStateBroadcastUpdate | null {
-    if (!this.lastKnownState) {
-      return null;
-    }
-
-    const { isDisconnected, isOnGround, ...broadcastState } = this.lastKnownState;
-    return broadcastState;
   }
 
   public getLatestState(): PlayerState | null {
