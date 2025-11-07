@@ -114,10 +114,6 @@ export class Match {
   };
 
   
-  // Map socket IDs to player UUIDs for tracking connections/reconnections
-  private socketIdToPlayerId: Map<string, string> = new Map();
-  private playerIdToSocketId: Map<string, string> = new Map();
-
   private id: string;
   private region: Region;
   private timeoutIds: Set<NodeJS.Timeout> = new Set();
@@ -152,8 +148,13 @@ export class Match {
 
 
   public getPlayerIdFromSocketId(socketId: string): string | undefined {
-    return this.socketIdToPlayerId.get(socketId);
-  } 
+    for (const [playerId, socket] of this.sockets.entries()) {
+      if (socket.id === socketId) {
+        return playerId;
+      }
+    }
+    return undefined;
+  }
 
   public addPlayer(socket: Socket, name: string): string {
     // Truncate the last 4 digits of the players socket.id with the last 3 of the match id and use as their playerId
@@ -165,10 +166,6 @@ export class Match {
     }
 
     this.sockets.set(playerId, socket);
-
-    // Store the socket ID to UUID mapping
-    this.socketIdToPlayerId.set(socket.id, playerId);
-    this.playerIdToSocketId.set(playerId, socket.id);
 
     // This is a new player
     const serverPlayer = new Player(
@@ -220,8 +217,6 @@ export class Match {
     clearTimeout(timeoutId);
     this.timeoutIds.delete(timeoutId);
     this.sockets.set(playerId, socket);
-    this.socketIdToPlayerId.set(socket.id, playerId);
-    this.playerIdToSocketId.set(playerId, socket.id);
     this.removeDisconnectedPlayerCallback(playerId);
     this.setUpPlayerSocketHandlers(playerId, socket);
 
@@ -343,8 +338,6 @@ export class Match {
     this.timeoutIds.clear();
     this.playerScores.clear();
     this.sockets.clear();
-    this.socketIdToPlayerId.clear();
-    this.playerIdToSocketId.clear();
     this.respawnQueue.clear();
 
 
@@ -681,10 +674,9 @@ export class Match {
 
 
 
-  private handlePlayerDisconnect(socket: Socket, playerId?: string, reason?: string): void {
+  private handlePlayerDisconnect(socket: Socket, playerId: string, reason?: string): void {
     // Get the UUID associated with this socket
     const socketId = socket.id;
-    if (!playerId) playerId = this.socketIdToPlayerId.get(socketId)
     if (!playerId) {
       logger.warn(`Socket ${socketId} disconnected but no UUID mapping found in match ${this.id}`);
       return;
@@ -738,8 +730,6 @@ export class Match {
       this.playerScores.delete(playerId);
 
       // Clean up from our tracking map
-      this.socketIdToPlayerId.delete(socketId);
-      this.playerIdToSocketId.delete(playerId);
       this.sockets.delete(playerId);
 
       // Check if we need to mark the match for removal
