@@ -113,7 +113,6 @@ export class Match {
     platforms: [],
   };
 
-  private lastSentPlayerStates: Map<string, PlayerStateBroadcast> = new Map();
   
   // Map socket IDs to player UUIDs for tracking connections/reconnections
   private socketIdToPlayerId: Map<string, string> = new Map();
@@ -123,7 +122,7 @@ export class Match {
   private region: Region;
   private timeoutIds: Set<NodeJS.Timeout> = new Set();
   private playerScores: Map<string, PlayerScore> = new Map();
-  private sockets: Socket[] = [];
+  private sockets: Map<string, Socket> = new Map(); // TODO: Does this grow indefinitely? transform to map?
   private respawnQueue: Map<string, string> = new Map();
   private matchIsActive = false;
   private lastUpdateTime = Date.now();
@@ -157,15 +156,15 @@ export class Match {
   } 
 
   public addPlayer(socket: Socket, name: string): string {
-    if (this.sockets.some(s => s.id === socket.id)) {
-      logger.warn(`Socket ${socket.id} is already connected to match ${this.id}`);
-      return this.socketIdToPlayerId.get(socket.id) ?? 'unknown playerId';
-    }
-
-    this.sockets.push(socket);
-    
     // Truncate the last 4 digits of the players socket.id with the last 3 of the match id and use as their playerId
     const playerId = socket.id.slice(0, -4) + this.id.slice(-3);
+    
+    if (this.sockets.has(playerId)) {
+      logger.warn(`Player ${playerId} is already connected to match ${this.id}`);
+      return playerId;
+    }
+
+    this.sockets.set(playerId, socket);
 
     // Store the socket ID to UUID mapping
     this.socketIdToPlayerId.set(socket.id, playerId);
@@ -190,8 +189,8 @@ export class Match {
       name
     });
   
-    this.setUpPlayerSocketHandlers([socket]);
-    logger.info(`Player ${name} (UUID: ${playerId}) joined match ${this.id} in region ${this.region}`);
+    this.setUpPlayerSocketHandlers(playerId, socket);
+    logger.info(`Player ${name} (playerId: ${playerId}) joined match ${this.id} in region ${this.region}`);
     logger.info(`Match ${this.id} now has ${this.worldState.players.size} players`);
 
     // Inform new player of current game state
@@ -220,11 +219,11 @@ export class Match {
     player.setDisconnected(false);
     clearTimeout(timeoutId);
     this.timeoutIds.delete(timeoutId);
-    this.sockets.push(socket);
+    this.sockets.set(playerId, socket);
     this.socketIdToPlayerId.set(socket.id, playerId);
     this.playerIdToSocketId.set(playerId, socket.id);
     this.removeDisconnectedPlayerCallback(playerId);
-    this.setUpPlayerSocketHandlers([socket]);
+    this.setUpPlayerSocketHandlers(playerId, socket);
 
     logger.info(`Player ${player.getName()} (${playerId}) rejoined match ${this.id}`);
   }
@@ -274,7 +273,7 @@ export class Match {
 
   public informShowIsLive(): void { 
     logger.info(`Match ${this.id} is live! Informing players...`);
-    for (const socket of this.sockets) {
+    for (const socket of this.sockets.values()) {
       socket.emit('showIsLive');
     }
   }
@@ -289,7 +288,7 @@ export class Match {
 
         if (currentTime - player.getLastInputTimestamp() > this.AFK_THRESHOLD_MS && !player.afkRemoveTimer) {
             logger.info(`Player ${player.getName()} (${playerId}) is AFK and will be removed from match ${this.id}`);
-            const playerSocket = this.sockets.find(s => s.id === this.playerIdToSocketId.get(playerId));
+            const playerSocket = this.sockets.get(playerId);
             if (playerSocket) {
               playerSocket.emit('afkWarning', { message: 'You have been inactive for too long and will be removed from the match.' });
               player.afkRemoveTimer = setTimeout(() => {
@@ -326,7 +325,7 @@ export class Match {
     }
 
     // Remove event listeners from sockets
-    for (const socket of this.sockets) {
+    for (const socket of this.sockets.values()) {
       socket.removeAllListeners();
     }
     
@@ -343,6 +342,7 @@ export class Match {
     this.worldState.projectiles = [];
     this.timeoutIds.clear();
     this.playerScores.clear();
+    this.sockets.clear();
     this.socketIdToPlayerId.clear();
     this.playerIdToSocketId.clear();
     this.respawnQueue.clear();
@@ -435,7 +435,6 @@ export class Match {
   }
 
   private handlePing(socket: Socket, data: any): void {
-    logger.info(`Received m-ping from socket ${socket.id} in match ${this.id}`);
     socket.emit('m-pong', data);
   }
 
@@ -454,37 +453,28 @@ export class Match {
     ];
   }
   
-  private setUpPlayerSocketHandlers(sockets: Socket[]) {
-    for (const socket of sockets) {
+  private setUpPlayerSocketHandlers(playerId: string, socket: Socket) {
+    socket.removeAllListeners('toggleBystander');
+    socket.removeAllListeners('disconnect');
+    socket.removeAllListeners('ping');
+    socket.removeAllListeners('playerInput');
+    socket.removeAllListeners('projectileHit');
 
-
-      socket.removeAllListeners('toggleBystander');
-      socket.removeAllListeners('disconnect');
-      socket.removeAllListeners('ping');
-      socket.removeAllListeners('playerInput');
-      socket.removeAllListeners('projectileHit');
-
-      const playerUUID = this.socketIdToPlayerId.get(socket.id);
-      if (!playerUUID) {
-        logger.error(`Cannot set up socket handlers for socket ${socket.id} - no UUID mapping found`);
-        continue;
-      }
-      // Move shoot handling and toggleBystander to PlayerInput event.
-      socket.on('toggleBystander', () => this.handleToggleBystander(playerUUID));
-      socket.on('connection_error', (err) => {
-        logger.error(`Connection error for player ${playerUUID} in match ${this.id}: ${err.message}`);
-      });
-      socket.on('connection_timeout', (err) => {
-        logger.error(`Connection timeout for player ${playerUUID} in match ${this.id}: ${err.message}`);
-      });
-      socket.on('reconnect_error', (err) => {
-        logger.error(`Reconnect error for player ${playerUUID} in match ${this.id}: ${err.message}`);
-      });
-      socket.on('disconnect', (reason) => this.handlePlayerDisconnect(socket, playerUUID, reason));
-      socket.on('m-ping', (data) => this.handlePing(socket, data));
-      socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(playerUUID, inputPayload));
-      socket.on('projectileHit', (enemyId) => this.handleProjectileHit(playerUUID, enemyId));
-    }
+    // Move shoot handling and toggleBystander to PlayerInput event.
+    socket.on('toggleBystander', () => this.handleToggleBystander(playerId));
+    socket.on('connection_error', (err) => {
+      logger.error(`Connection error for player ${playerId} in match ${this.id}: ${err.message}`);
+    });
+    socket.on('connection_timeout', (err) => {
+      logger.error(`Connection timeout for player ${playerId} in match ${this.id}: ${err.message}`);
+    });
+    socket.on('reconnect_error', (err) => {
+      logger.error(`Reconnect error for player ${playerId} in match ${this.id}: ${err.message}`);
+    });
+    socket.on('disconnect', (reason) => this.handlePlayerDisconnect(socket, playerId, reason));
+    socket.on('m-ping', (data) => this.handlePing(socket, data));
+    socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(playerId, inputPayload));
+    socket.on('projectileHit', (enemyId) => this.handleProjectileHit(playerId, enemyId));
   }
 // Left off reviewing disconnect changes here. CHeck disconnect-notes.txt
   private handleProjectileHit(playerId: string, enemyId: string): void {
@@ -573,7 +563,7 @@ export class Match {
       }
 
     
-      for (const socket of this.sockets) {
+      for (const socket of this.sockets.values()) {
         logger.info(`Emitting gameOver event to player socket ${socket.id} in match ${this.id}`);
         socket.emit('gameOver', sortedScores);
       }
@@ -612,7 +602,7 @@ export class Match {
         }))
       };
 
-      for (const socket of this.sockets) {
+      for (const socket of this.sockets.values()) {
         socket.emit('stateUpdate', gameState);
       }
 
@@ -722,14 +712,14 @@ export class Match {
     // (This is done as reconnecting players will get a new socket ID)
   
     socket.removeAllListeners();
-    this.sockets = this.sockets.filter(s => s.id !== socketId);
+    this.sockets.delete(playerId);
   }
 
 
 
   private removePlayerFromGameState(playerId: string, socketId: string): void {
       // If the timeout executes, the player did not reconnect in time
-      logger.info(`Player (UUID: ${playerId}) did not reconnect within grace period. Removing from match ${this.id}.`);
+      logger.info(`Player ${playerId} did not reconnect within grace period. Removing from match ${this.id}.`);
 
       // Notify matchmaker first
       this.removeDisconnectedPlayerCallback(playerId);
@@ -750,6 +740,7 @@ export class Match {
       // Clean up from our tracking map
       this.socketIdToPlayerId.delete(socketId);
       this.playerIdToSocketId.delete(playerId);
+      this.sockets.delete(playerId);
 
       // Check if we need to mark the match for removal
       if (this.worldState.players.size === 0) {
@@ -866,7 +857,7 @@ export class Match {
     }
     logger.info(`Match ${this.id} reset complete with ${this.worldState.players.size} players`);
     // Inform players of match reset
-    for (const socket of this.sockets) {
+    for (const socket of this.sockets.values()) {
       socket.emit('matchReset', {
         players: this.getPlayerStates(),
         scores: Array.from(this.playerScores.entries())

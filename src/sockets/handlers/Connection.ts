@@ -11,7 +11,7 @@ export default function connectionHandler(
   logger.info(`Socket connected: ${socket.id}`);
     // Get and log the total number of connected clients
   const connectedClients = io.engine.clientsCount;
-  console.log(`Total connected clients connected: ${connectedClients}`);
+  logger.info(`Total connected clients connected: ${connectedClients}`);
   socket.on('joinQueue', ({ region, name }: { region: string, name: string}) => {
       logger.info(`Socket ${socket.id} emitted joinQueue`);
       if (config.VALID_REGIONS.includes(region)) {
