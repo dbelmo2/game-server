@@ -586,7 +586,8 @@ export class Match {
       const playerStates = this.getPlayerStates();
 
       const gameState = {
-        serverTick: this.serverTick,
+        sTick: this.serverTick,
+        sTime: performance.now(),
         players: playerStates,
         projectiles: projectileState,
         scores: Array.from(this.playerScores.entries()).map(([playerId, score]) => ({
