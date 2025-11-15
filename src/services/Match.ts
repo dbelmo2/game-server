@@ -11,6 +11,7 @@ import {
 import { Player, PlayerState, PlayerStateBroadcast, PlayerStateBroadcastUpdate } from '../game/entities/Player';
 import { Platform } from '../game/entities/Platform';
 import { InputVector } from '../game/systems/Vector';
+import ObjectPool from '../game/systems/ObjectPool';
 
 
 // TODO:
@@ -38,7 +39,7 @@ export type PlayerScore = {
 
 export type WorldState = {
     players: Map<string, Player>;
-    projectiles: Projectile[];
+    projectiles: Set<Projectile>;
     platforms: Platform[];
 
 };
@@ -109,11 +110,16 @@ export class Match {
 
   private worldState: WorldState = {
     players: new Map(),
-    projectiles: [],
+    projectiles: new Set(),
     platforms: [],
   };
 
-  
+  private projectilePool: ObjectPool<Projectile> = new ObjectPool<Projectile>(
+    () => new Projectile('', '', 0, 0, 0, 0),
+    (projectile) => projectile.reset(),
+    (projectile) => projectile.destroy()
+  );
+
   private id: string;
   private region: Region;
   private timeoutIds: Set<NodeJS.Timeout> = new Set();
@@ -328,20 +334,16 @@ export class Match {
       player.destroy();
     }
 
-    for (const projectile of this.worldState.projectiles) {
-      projectile.destroy();
-    }
+
+    this.projectilePool.destroy();
 
     // Clear all game state
     this.worldState.players.clear();
-    this.worldState.projectiles = [];
+    this.worldState.projectiles.clear();
     this.timeoutIds.clear();
     this.playerScores.clear();
     this.sockets.clear();
     this.respawnQueue.clear();
-
-
-
 
 
     this.setDisconnectedPlayerCallback = () => {};
@@ -579,8 +581,9 @@ export class Match {
   // Extract state broadcast into its own method
   public broadcastGameState(): void {
     try {
-    
-      const projectileState = this.worldState.projectiles.filter((state) => state.shouldBeDestroyed === false)
+
+      const projectileState = Array.from(this.worldState.projectiles.values())
+        .filter((state) => state.shouldBeDestroyed === false)
         .map((projectile) => projectile.getState());
 
       const playerStates = this.getPlayerStates();
@@ -613,17 +616,15 @@ export class Match {
       this.integratePlayerInputs(dt);
   
       // Process projectile updates
-      this.worldState.projectiles = this.worldState.projectiles.filter(
-        projectile => {
-          projectile.update();
-          
-        // Check expired projectiles
-          if (projectile.shouldBeDestroyed) {
-            logger.debug(`Projectile ${projectile.getId()} expired`);
-            return false;
-          }
 
-        
+      const projectilesToRemove: Projectile[] = [];
+      Array.from(this.worldState.projectiles).forEach((projectile, i) => { 
+        projectile.update();
+
+        if (projectile.shouldBeDestroyed) {
+          projectilesToRemove.push(projectile);
+        }
+                
           // Check for collisions only if match is active...
           // This is currently disabled as we dont have 
           // server side collision detection implemented yet.
@@ -631,9 +632,12 @@ export class Match {
             //this.checkProjectileCollisions(i, projectile, projectilesToRemove);
           }
 
-          return true; // Keep projectile if not expired
-          
-        });
+      });
+      projectilesToRemove.forEach((projectile) => {
+        this.projectilePool.releaseElement(projectile);
+        this.worldState.projectiles.delete(projectile);
+      });
+
       // Check win condition
       this.checkWinCondition();
 
@@ -758,8 +762,10 @@ export class Match {
       // TODO: What is the use of id going forward? Client generated projectile IDs can lead to collisions.
       // consider server generated IDs.
       // TODO: If were not handling collision server side, this should be removed.
-      const projectile = new Projectile(id, player.getId(), player.getX(), player.getY() - 50, x, y);
-      this.worldState.projectiles.push(projectile);
+      const projectile = this.projectilePool.getElement();
+      projectile.initialize(id, player.getId(), player.getX(), player.getY() - 50, x, y);
+
+      this.worldState.projectiles.add(projectile);
   }
 
   private handleCollision(shooterId: string, target: Player): void {
@@ -830,10 +836,10 @@ export class Match {
       this.timeoutIds.delete(this.matchResetTimeout);
       this.matchResetTimeout = null;
     }
-    // Clear all active projectiles
-    this.worldState.projectiles.forEach(p => p.destroy());
-    this.worldState.projectiles = [];
-    
+
+    this.projectilePool.clear();
+    this.worldState.projectiles.clear();
+
     // Reset player health and scores but maintain positions and bystander status
     for (const [playerId, player] of this.worldState.players.entries()) {
       player.resetHealth();

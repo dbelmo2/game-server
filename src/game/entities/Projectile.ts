@@ -118,4 +118,45 @@ export class Projectile  {
     };
   }
 
+  public reset(): Projectile{
+    this.x = 0;
+    this.y = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.id = '';
+    this.ownerId = '';
+    this.shouldBeDestroyed = false;
+    if (this.deathId) {
+      clearTimeout(this.deathId);
+      this.deathId = null;
+    }
+    return this;
+  }
+
+  public initialize(
+    id: string,
+    ownerId: string,
+    spawnX: number,
+    spawnY: number,
+    targetX: number,
+    targetY: number,
+    speed = 30,
+    lifespan = 1750,
+    gravityEffect = 0.05
+  ): Projectile {
+    this.x = spawnX;
+    this.y = spawnY;
+    this.speed = speed;
+    this.lifespan = lifespan;
+    this.gravityEffect = gravityEffect;
+    this.id = id;
+    this.ownerId = ownerId;
+
+    // Calculate direction vector
+    this.calculateVelocity(spawnX, spawnY, targetX, targetY);
+
+    // Begin the age process (we dont want projetiles sticking around forever)
+    this.age();
+    return this;
+  }
 }
