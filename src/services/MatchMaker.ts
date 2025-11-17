@@ -9,6 +9,7 @@ export type Region = 'NA' | 'EU' | 'ASIA' | 'GLOBAL';
 const BROADCAST_HZ = 30;                   // 100 ms, 10 updates per second
 const FRAME_MS     = 1000 / BROADCAST_HZ;  // outer‑loop cadence
 
+const BROADBCAST_BATCH_SIZE = 50;          // Number of matches to broadcast per loop iteration
 
 type QueuedPlayer = {
   socket: Socket;
@@ -117,34 +118,30 @@ class Matchmaker {
   }
 
   private serverLoop = () => {
-    // Create a copy of the matches to handle safely during iteration
-    const matchesToProcess = Array.from(this.matches.entries());
-    for (const [matchId, match] of matchesToProcess) {
-      const shouldRemove = match.getShouldRemove();
-      if (match.getIsReady() && shouldRemove === false) {
-        if (this.showisLive) {
-          match.informShowIsLive();
-        }
-        match.update();
-      } else if (shouldRemove) {
-        logger.info(`Calling remove match from server loop for match ${matchId}`);
-        this.removeMatch(match);
-      } else {
-        logger.info(`Match ${matchId} is not ready yet`);
-      }
-    }
-
-    if (this.showisLive) this.showisLive = false;
-
     const now = Date.now();
-    const delta = now - this.lastBroadcast;
-
-    if (delta >= FRAME_MS) {
-      for (const match of this.matches.values()) match.broadcastGameState();
+    
+    if (now - this.lastBroadcast >= FRAME_MS) {
+      // Update & broadcast at 30Hz
+      this.matches.forEach(match => {
+        if (match.getIsReady() && !match.getShouldRemove()) {
+          match.update();
+          match.broadcastGameState();
+          if (this.showisLive === true) {
+            match.informShowIsLive();
+          }
+        } else if (match.getShouldRemove()) {
+          this.removeMatch(match);
+        }
+      });
+      
+      this.showisLive = false;
       this.lastBroadcast = now;
     }
 
-    setTimeout(this.serverLoop, 4);    
+    setTimeout(
+      this.serverLoop, 
+      Math.max(1, FRAME_MS - (Date.now() - this.lastBroadcast))
+    );
   }
 
 
