@@ -11,19 +11,25 @@ export interface PlayerState {
   velocity: PositionVector;
   isOnGround?: boolean;
   tick: number; 
-  isDisconnected: boolean
+  isDisconnected: boolean;
+  isDead: boolean;
+  kills: number;
+  deaths: number;
 }
 
 export interface PlayerStateBroadcast {
     id: string,
     x: number,
     y: number,
-    hp: number,
-    by: boolean,
-    name: string,
+    hp?: number,
+    by?: boolean,
+    name?: string,
     vx: number,
     tick: number,
     vy: number,
+    isDead?: boolean,
+    kills?: number,
+    deaths?: number,
 }
 
 export interface PlayerStateBroadcastUpdate {
@@ -59,10 +65,14 @@ export class Player {
   private numTicksWithoutInput: number = 0;
   private InputDebt: InputVector[] = [];
   private lastKnownState: PlayerState | null = null;
+  private lastBroadcastState: PlayerState | null = null;
   private isShooting = false; // Track if the player is shooting
   private lastInputTimestamp: number = Date.now(); // Timestamp of the last input
   public afkRemoveTimer: NodeJS.Timeout | undefined; // Timer for AFK removal
   private isDisconnected: boolean = false; // Track if player is temporarily disconnected
+  private isDead: boolean = false; // Track if player is dead
+  private kills: number = 0; // Track player's kill count
+  private deaths: number = 0; // Track player's death count
   
 
   // Physics constants
@@ -105,6 +115,38 @@ export class Player {
 
   public getNumTicksWithoutInput(): number {
     return this.numTicksWithoutInput;
+  }
+
+  public setIsDead(dead: boolean): void {
+    this.isDead = dead;
+  }
+
+  public getIsDead(): boolean {
+    return this.isDead;
+  }
+
+  public addKill(): void {
+    this.kills++;
+  }
+
+  public addDeath(): void {
+    this.deaths++;
+    this.setIsDead(true);
+    this.inputQueue = []; // Clear input queue on death
+    this.clearInputDebt();
+  }
+
+  public resetScore(): void {
+    this.kills = 0;
+    this.deaths = 0;
+  }
+
+  public getKills(): number {
+    return this.kills;
+  }
+
+  public getDeaths(): number {
+    return this.deaths;
   }
 
 
@@ -172,7 +214,6 @@ export class Player {
 
 
       this.updateLatestState(localTick);
-
   }
 
   private resetJumpState(): void {
@@ -289,6 +330,34 @@ export class Player {
     this.hp = 100;
   }
 
+  public respawn(x: number, y: number): void {
+    this.setIsDead(false);
+    this.resetHealth();
+    this.x = x;
+    this.y = y;
+    this.velocity = { x: 0, y: 0 };
+    this.isOnGround = false;
+    this.canDoubleJump = true;
+  }
+
+
+  public getFullBroadcastState(): PlayerStateBroadcast {
+    const broadcastState: PlayerStateBroadcast = {
+      id: this.id,
+      x: this.x,
+      y: this.y,
+      vx: this.velocity.x,
+      vy: this.velocity.y,
+      tick: this.lastProcessedInput?.tick || 0,
+      hp: this.hp,
+      by: this.isBystander,
+      name: this.name,
+      isDead: this.isDead,
+      kills: this.kills,
+      deaths: this.deaths
+    };
+    return broadcastState;
+  }
 
   public getPlayerBounds(): { top: number; bottom: number; left: number; right: number; width: number; height: number } {
     const width = 50;
@@ -353,12 +422,70 @@ export class Player {
       position: { x: this.x, y: this.y },
       isOnGround: this.isOnGround,
       tick: latestProcessedTick,
-      isDisconnected: this.getIsDisconnected()
+      isDisconnected: this.getIsDisconnected(),
+      isDead: this.isDead,
+      kills: this.kills,
+      deaths: this.deaths
     }
   }
 
-  public getLatestState(): PlayerState | null {
-    return this.lastKnownState;
+  public getLatestState(): PlayerState {
+    const state: PlayerState = {
+      id: this.id,
+      position: { x: this.x, y: this.y },
+      hp: this.hp,
+      isBystander: this.isBystander,
+      name: this.name,
+      velocity: { x: this.velocity.x, y: this.velocity.y },
+      isOnGround: this.isOnGround,
+      tick: this.lastProcessedInput?.tick || 0,
+      isDisconnected: this.isDisconnected,
+      isDead: this.isDead,
+      kills: this.kills,
+      deaths: this.deaths
+    };
+    
+    this.lastKnownState = { ...state };
+    return state;
+  }
+
+  public getLatestStateDelta(): PlayerStateBroadcast {
+    const currentState = this.getLatestState();
+    
+    // Always include position, velocity, id, and tick
+    const delta: PlayerStateBroadcast = {
+      id: this.id,
+      x: currentState.position.x,
+      y: currentState.position.y,
+      vx: currentState.velocity.x,
+      vy: currentState.velocity.y,
+      tick: currentState.tick
+    };
+
+    // Only include changed fields (or if no previous broadcast state exists)
+    if (!this.lastBroadcastState || this.lastBroadcastState.hp !== currentState.hp) {
+      delta.hp = currentState.hp;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.isBystander !== currentState.isBystander) {
+      delta.by = currentState.isBystander;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.name !== currentState.name) {
+      delta.name = currentState.name;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.isDead !== currentState.isDead) {
+      delta.isDead = currentState.isDead;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.kills !== currentState.kills) {
+      delta.kills = currentState.kills;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.deaths !== currentState.deaths) {
+      delta.deaths = currentState.deaths;
+    }
+
+    // Update last broadcast state
+    this.lastBroadcastState = { ...currentState };
+    
+    return delta;
   }
 
 
@@ -397,6 +524,7 @@ export class Player {
       clearTimeout(this.afkRemoveTimer);
     } 
     this.inputQueue = [];
+    this.InputDebt = [];
     logger.info(`Destroyed player ${this.name} (UUID: ${this.id}) and cleaned up resources.`);
   }
 }
