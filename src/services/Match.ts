@@ -41,7 +41,7 @@ export type WorldState = {
     players: Map<string, Player>;
     projectiles: Set<Projectile>;
     platforms: Platform[];
-
+    playerInputCounts: Map<string, { count: number; windowStart: number }>;
 };
 
 export type InputPayload = {
@@ -95,12 +95,16 @@ export class Match {
   private readonly TICK_RATE = 30; // 60 ticks per second
   private readonly MIN_MS_BETWEEN_TICKS = 1000 / this.TICK_RATE;
   private readonly MIN_S_BETWEEN_TICKS = this.MIN_MS_BETWEEN_TICKS / 1000; // Convert to seconds
+  private readonly RATE_LIMIT_WINDOW_MS = 1000; // 1 second
+  private readonly MAX_INPUT_RATE = 100; // Max inputs per second
   private readonly GAME_BOUNDS = {
     left: 0,
     right: this.GAME_WIDTH,
     top: 0,
     bottom: this.GAME_HEIGHT
   };
+
+  
 
 
   private matchResetTimeout: NodeJS.Timeout | null = null;
@@ -112,20 +116,22 @@ export class Match {
     players: new Map(),
     projectiles: new Set(),
     platforms: [],
+    playerInputCounts: new Map<string, { count: number; windowStart: number }>(),
   };
 
   private projectilePool: ObjectPool<Projectile> = new ObjectPool<Projectile>(
     () => new Projectile('', '', 0, 0, 0, 0),
     (projectile) => projectile.reset(),
-    (projectile) => projectile.destroy()
+    (projectile) => projectile.destroy(),
+    100,
+    1000
   );
 
   private id: string;
   private region: Region;
   private timeoutIds: Set<NodeJS.Timeout> = new Set();
-  private playerScores: Map<string, PlayerScore> = new Map();
   private sockets: Map<string, Socket> = new Map(); // TODO: Does this grow indefinitely? transform to map?
-  private respawnQueue: Map<string, string> = new Map();
+  private respawnQueue: Set<string> = new Set();
   private matchIsActive = false;
   private lastUpdateTime = Date.now();
   private isReady = false; // Utilized by parent loop
@@ -186,25 +192,14 @@ export class Match {
     // Initialize new player as bystander
     this.worldState.players.set(playerId, serverPlayer);
 
-    this.playerScores.set(playerId, {
-      kills: 0,
-      deaths: 0,
-      name
-    });
-  
     this.setUpPlayerSocketHandlers(playerId, socket);
     logger.info(`Player ${name} (playerId: ${playerId}) joined match ${this.id} in region ${this.region}`);
     logger.info(`Match ${this.id} now has ${this.worldState.players.size} players`);
 
     // Inform new player of current game state
     socket.emit('stateUpdate', {
-      players: this.getPlayerStates(),
+      players: this.getFullPlayerBroadcastStates(),
       projectiles: [],
-      scores: Array.from(this.playerScores.entries())
-        .map(([playerId, score]) => ({
-          playerId,
-          ...score
-        }))
     });
     return playerId;
   }
@@ -239,7 +234,7 @@ export class Match {
 
 
   public getNumberOfPlayers(): number {
-    return this.playerScores.size;
+    return this.worldState.players.size;
   }
 
   public getRegion(): Region {
@@ -305,7 +300,7 @@ export class Match {
   }
 
   public getPlayerIds(): string[] {
-    return Array.from(this.playerScores.keys());
+    return Array.from(this.worldState.players.keys());
   }
 
   public getShouldRemove(): boolean {
@@ -341,7 +336,6 @@ export class Match {
     this.worldState.players.clear();
     this.worldState.projectiles.clear();
     this.timeoutIds.clear();
-    this.playerScores.clear();
     this.sockets.clear();
     this.respawnQueue.clear();
 
@@ -355,6 +349,10 @@ export class Match {
   // TODO: Would this be faster if we make it promise based and use promise.all?
   private integratePlayerInputs(dt: number) {
     for (const player of this.worldState.players.values()) {
+      if (player.getIsDead() || player.getIsDisconnected()) {
+        continue;
+      }
+
       const max = 1;
       let numIntegrations = 0;
 
@@ -491,10 +489,36 @@ export class Match {
     this.handleCollision(playerId, enemy);
   }
 
+
+  private checkRateLimit(playerId: string): boolean {
+      const now = Date.now();
+      const record = this.worldState.playerInputCounts.get(playerId);
+      
+      if (!record || now - record.windowStart >= this.RATE_LIMIT_WINDOW_MS) {
+        // New window
+        this.worldState.playerInputCounts.set(playerId, { count: 1, windowStart: now });
+        return true;
+      }
+      
+      if (record.count >= this.MAX_INPUT_RATE) {
+        return false; // Rate limit exceeded
+      }
+      
+      record.count++;
+      return true;
+  }
+
+
   private handlePlayerInputPayload(playerId: string, playerInput: InputPayload): void {
     const player = this.worldState.players.get(playerId);
     if (!player) {
       logger.error(`Player ${playerId} attempted to send input but was not found in match ${this.id}`);
+      return;
+    }
+
+
+    if (this.checkRateLimit(playerId) === false) {
+      logger.warn(`Player ${player.getName()} (${playerId}) is sending inputs too quickly in match ${this.id}`);
       return;
     }
 
@@ -512,11 +536,7 @@ export class Match {
       return;
     }
     
-    const sortedScores = Array.from(this.playerScores.entries())
-      .map(([playerId, score]) => ({
-        playerId,
-        ...score
-      }))
+    const sortedScores = this.getAllPlayerScores()
       .sort((a, b) => b.kills - a.kills);
 
     const winner = sortedScores[0];
@@ -529,10 +549,6 @@ export class Match {
       logger.info(`Match ${this.id} ended. Winner: ${winnerName} (${winner.playerId}) with ${winner.kills} kills`);
       logger.info(`Final scores for match ${this.id}:`);
       
-      // Log all player scores
-      sortedScores.forEach((score, index) => {
-        logger.info(`  ${index + 1}. ${score.name} - Kills: ${score.kills}, Deaths: ${score.deaths}`);
-      });
 
       // Emit game over event with sorted scores
       this.matchIsActive = false;
@@ -544,19 +560,13 @@ export class Match {
 
       // Respawn any players in the respawn queue
 
-      for (const [playerId, playerName] of this.respawnQueue) {
-        const respawningPlayer = new Player(
-          playerId,
-          playerName,
-          this.STARTING_X,
-          this.STARTING_Y,
-          this.GAME_BOUNDS
-        );
-        respawningPlayer.setIsBystander(false);
-        respawningPlayer.setPlatforms(this.worldState.platforms);
-        this.worldState.players.set(playerId, respawningPlayer);
+      for (const playerId of this.respawnQueue) {
+        const player = this.worldState.players.get(playerId);
+        if (player) {
+          // Remove existing player instance before respawning
+          player.respawn(this.STARTING_X, this.STARTING_Y);
+        }
       }
-
     
       for (const socket of this.sockets.values()) {
         logger.info(`Emitting gameOver event to player socket ${socket.id} in match ${this.id}`);
@@ -586,17 +596,13 @@ export class Match {
         .filter((state) => state.shouldBeDestroyed === false)
         .map((projectile) => projectile.getState());
 
-      const playerStates = this.getPlayerStates();
-
+      const playerStates = this.getPlayerBroadcastState();
+      
       const gameState = {
         sTick: this.serverTick,
         sTime: performance.now(),
         players: playerStates,
         projectiles: projectileState,
-        scores: Array.from(this.playerScores.entries()).map(([playerId, score]) => ({
-          playerId,
-          ...score
-        }))
       };
 
       for (const socket of this.sockets.values()) {
@@ -732,7 +738,6 @@ export class Match {
 
       // Actually remove the player now
       this.worldState.players.delete(playerId);
-      this.playerScores.delete(playerId);
 
       // Clean up from our tracking map
       this.sockets.delete(playerId);
@@ -780,49 +785,39 @@ export class Match {
   }
 
   private handlePlayerDeath(victimId: string, victimName: string, killerId: string) {
-      this.worldState.players.delete(victimId);
-      // Update death count for killed player
+      // Mark player as dead instead of removing them
+      const victim = this.worldState.players.get(victimId);
       const killer = this.worldState.players.get(killerId);
-      const killerName = killer ? killer.getName() : "Unknown Player";
-  
-
-      const killedPlayerScore = this.playerScores.get(victimId);
-
-      if (killedPlayerScore) {
-        killedPlayerScore.deaths++;
-        logger.info(`Player ${victimName} (${victimId}) was killed by ${killerName} (${killerId}) in match ${this.id}`);
+      
+      if (victim) {
+        victim.addDeath();
+        logger.info(`Player ${victimName} (${victimId}) was killed by ${killer?.getName() || "Unknown Player"} (${killerId}) in match ${this.id}`);
       } else {
-        logger.warn(`Failed to update deaths for player ${victimName} (${victimId}) - score not found`);
+        logger.warn(`Failed to update deaths for player ${victimName} (${victimId}) - player not found`);
       }
+      
       // Update kill count for shooter
-      const shooterScore = this.playerScores.get(killerId);
-      if (shooterScore) {
-        logger.info(`Player ${killerName} (${killerId}) now has ${shooterScore.kills + 1} kills in match ${this.id}`);
-        shooterScore.kills++;
+      if (killer) {
+        killer.addKill();
+        logger.info(`Player ${killer.getName()} (${killerId}) now has ${killer.getKills()} kills in match ${this.id}`);
         this.checkWinCondition();
       } else {
-          logger.error(`Failed to update kills for player ${killerName} (${killerId}) - score not found`);
+        logger.error(`Failed to update kills for player (${killerId}) - player not found`);
       }
 
-      this.scheulePlayerRespawn(victimId, victimName);
+      this.scheulePlayerRespawn(victimId);
   }
 
-  private scheulePlayerRespawn(playerId: string, playerName: string): void {
-      this.respawnQueue.set(playerId, playerName);
+  private scheulePlayerRespawn(playerId: string): void {
+      this.respawnQueue.add(playerId);
       const id = setTimeout(() => {
         const needsRespawn = this.respawnQueue.has(playerId);
         if (needsRespawn === false) return; // Player is not in respawn queue
         this.respawnQueue.delete(playerId);
-        const player = new Player(
-          playerId,
-          playerName,
-          this.STARTING_X, 
-          this.STARTING_Y, 
-          this.GAME_BOUNDS  
-        );
-        player.setIsBystander(false)
-        player.setPlatforms(this.worldState.platforms);
-        this.worldState.players.set(playerId, player);
+        const player = this.worldState.players.get(playerId);
+        if (player) {
+          player.respawn(this.STARTING_X, this.STARTING_Y);
+        }
         this.timeoutIds.delete(id);
       }, 3000);
 
@@ -845,23 +840,14 @@ export class Match {
       player.resetHealth();
       // Keep x, y positions and isBystander state
       
-      // Reset scores for new round
-      this.playerScores.set(playerId, {
-        kills: 0,
-        deaths: 0,
-        name: player.getName()
-      });
+      // Reset scores for new round - now handled by Player class
+      player.resetScore();
     }
     logger.info(`Match ${this.id} reset complete with ${this.worldState.players.size} players`);
     // Inform players of match reset
     for (const socket of this.sockets.values()) {
       socket.emit('matchReset', {
-        players: this.getPlayerStates(),
-        scores: Array.from(this.playerScores.entries())
-          .map(([playerId, score]) => ({
-            playerId,
-            ...score
-          }))
+        players: this.getPlayerBroadcastState(),
       });
     }
 
@@ -874,28 +860,37 @@ export class Match {
     // Could add additional error handling logic here
   }
 
-  private getPlayerStates(): PlayerStateBroadcast[] {
+
+  private getFullPlayerBroadcastStates(): PlayerStateBroadcast[] {
     const states: PlayerStateBroadcast[] = [];
     for (const player of this.worldState.players.values()) {
+      const fullState = player.getFullBroadcastState();
+      states.push(fullState);
+    }
+    return states;
+  }
+
+
+  private getAllPlayerScores(): Array<{playerId: string, kills: number, deaths: number, name: string}> {
+    const scores: Array<{playerId: string, kills: number, deaths: number, name: string}> = [];
+    for (const player of this.worldState.players.values()) {
       const state = player.getLatestState();
-      if (state) {
-        // Add disconnected flag to player state
+      scores.push({
+        playerId: state.id,
+        kills: state.kills,
+        deaths: state.deaths,
+        name: state.name
+      });
+    }
+    return scores;
+  }
 
-
-        const broadcastState: PlayerStateBroadcast = {
-          id: state.id,
-          x: state.position.x,
-          y: state.position.y,
-          hp: state.hp,
-          by: state.isBystander,
-          name: state.name,
-          vx: state.velocity.x,
-          vy: state.velocity.y,
-          tick: state.tick,
-        };
-
-        states.push(broadcastState);
-      }
+  private getPlayerBroadcastState(): PlayerStateBroadcast[] {
+    const states: PlayerStateBroadcast[] = [];
+    for (const player of this.worldState.players.values()) {
+      // Use delta method to only send changed data
+      const deltaState = player.getLatestStateDelta();
+      states.push(deltaState);
     }
     return states;
   }
