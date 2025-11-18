@@ -39,7 +39,7 @@ class Matchmaker {
 
   public enqueuePlayer(player: QueuedPlayer) {
     try {
-      const { match, disconnectedPlayer }  = this.findMatchInRegion(player.region, player?.id);
+      const { match, disconnectedPlayer }  = this.findMatchInRegion(player.region, player.playerMatchId);
       if (match) {
         if (!disconnectedPlayer) {
           logger.info(`Adding player with socket ${player.socket.id} to existing match ${match.getId()} in region ${player.region}`);
