@@ -170,18 +170,18 @@ export class Match {
 
   public addPlayer(socket: Socket, name: string): string {
     // Truncate the last 4 digits of the players socket.id with the last 3 of the match id and use as their playerId
-    const playerId = socket.id.slice(0, -4) + this.id.slice(-3);
+    const playerMatchId = socket.id.slice(0, -4) + this.id.slice(-3);
     
-    if (this.sockets.has(playerId)) {
-      logger.warn(`Player ${playerId} is already connected to match ${this.id}`);
-      return playerId;
+    if (this.sockets.has(playerMatchId)) {
+      logger.warn(`Player ${playerMatchId} is already connected to match ${this.id}`);
+      return playerMatchId;
     }
 
-    this.sockets.set(playerId, socket);
+    this.sockets.set(playerMatchId, socket);
 
     // This is a new player
     const serverPlayer = new Player(
-      playerId, // Use UUID instead of socket.id
+      playerMatchId, // Use UUID instead of socket.id
       name, 
       this.STARTING_X,
       this.STARTING_Y,
@@ -190,33 +190,33 @@ export class Match {
 
     serverPlayer.setPlatforms(this.worldState.platforms);
     // Initialize new player as bystander
-    this.worldState.players.set(playerId, serverPlayer);
+    this.worldState.players.set(playerMatchId, serverPlayer);
 
-    this.setUpPlayerSocketHandlers(playerId, socket);
-    logger.info(`Player ${name} (playerId: ${playerId}) joined match ${this.id} in region ${this.region}`);
+    this.setUpPlayerSocketHandlers(playerMatchId, socket);
+    logger.info(`Player ${name} (playerId: ${playerMatchId}) joined match ${this.id} in region ${this.region}`);
     logger.info(`Match ${this.id} now has ${this.worldState.players.size} players`);
 
-    return playerId;
+    return playerMatchId;
   }
 
-  public rejoinPlayer(socket: Socket, playerId: string, timeoutId: NodeJS.Timeout): void {
-    const player = this.worldState.players.get(playerId);
+  public rejoinPlayer(socket: Socket, playerMatchId: string, timeoutId: NodeJS.Timeout): void {
+    const player = this.worldState.players.get(playerMatchId);
     if (!player) {
-      logger.error(`Player ${playerId} attempted to rejoin match ${this.id} but was not found in game state`);
+      logger.error(`Player ${playerMatchId} attempted to rejoin match ${this.id} but was not found in game state`);
       socket.emit('error', { message: 'Player not found in match' });
       socket.disconnect(true);
-      this.removeDisconnectedPlayerCallback(playerId);
-      throw new Error(`Player ${playerId} not found in match ${this.id}`);
+      this.removeDisconnectedPlayerCallback(playerMatchId);
+      throw new Error(`Player ${playerMatchId} not found in match ${this.id}`);
     }
     
     player.setDisconnected(false);
     clearTimeout(timeoutId);
     this.timeoutIds.delete(timeoutId);
-    this.sockets.set(playerId, socket);
-    this.removeDisconnectedPlayerCallback(playerId);
-    this.setUpPlayerSocketHandlers(playerId, socket);
+    this.sockets.set(playerMatchId, socket);
+    this.removeDisconnectedPlayerCallback(playerMatchId);
+    this.setUpPlayerSocketHandlers(playerMatchId, socket);
 
-    logger.info(`Player ${player.getName()} (${playerId}) rejoined match ${this.id}`);
+    logger.info(`Player ${player.getName()} (${playerMatchId}) rejoined match ${this.id}`);
   }
 
   public getIsReady(): boolean {

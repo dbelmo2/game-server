@@ -17,6 +17,7 @@ type QueuedPlayer = {
   enqueuedAt: number;
   name: string;
   id?: string;
+  playerMatchId?: string;
 };
 
 
@@ -40,27 +41,28 @@ class Matchmaker {
     try {
       const { match, disconnectedPlayer }  = this.findMatchInRegion(player.region, player?.id);
       if (match) {
-        logger.info(`Adding player with socket ${player.socket.id} to existing match ${match.getId()} in region ${player.region}`);
         if (!disconnectedPlayer) {
+          logger.info(`Adding player with socket ${player.socket.id} to existing match ${match.getId()} in region ${player.region}`);
           // New player joining existing match
-          const playerId = match.addPlayer(player.socket, player.name);
+          const playerMatchId = match.addPlayer(player.socket, player.name);
           player.socket.emit('matchFound', { 
             matchId: match.getId(), 
             region: player.region,
-            playerId: playerId
+            playerId: playerMatchId,
           });
         } else {
+          logger.info(`Rejoining disconnected player ${player.playerMatchId} to match ${match.getId()} in region ${player.region}`);
           // Rejoining disconnected player
-          if (!player.id) {
-            throw new Error(`Player ID is required for rejoining a match`);
+          if (!player.playerMatchId) {
+            throw new Error(`playerMatchID is required for rejoining a match`);
           }
           const { timeoutId } = disconnectedPlayer;
-          match.rejoinPlayer(player.socket, player.id, timeoutId);
+          match.rejoinPlayer(player.socket, player.playerMatchId, timeoutId);
           player.socket.emit('rejoinedMatch', { 
             matchId: match.getId(), 
             region: player.region 
           });
-          this.removeDisconnectedPlayer(player.id);
+          this.removeDisconnectedPlayer(player.playerMatchId);
         }
         player.socket.join(match.getId());
 
@@ -89,22 +91,22 @@ class Matchmaker {
         player.socket.disconnect(true);
     }
   }
-  private setDisconnectedPlayer(playerId: string, matchId: string, timeoutId: NodeJS.Timeout) {
-    if (this.disconnectedPlayers.has(playerId)) {
-      clearTimeout(this.disconnectedPlayers.get(playerId)!.timeoutId);
-      logger.info(`Cleared existing disconnect timeout for player ${playerId}`);
+  private setDisconnectedPlayer(playerMatchId: string, matchId: string, timeoutId: NodeJS.Timeout) {
+    if (this.disconnectedPlayers.has(playerMatchId)) {
+      clearTimeout(this.disconnectedPlayers.get(playerMatchId)!.timeoutId);
+      logger.info(`Cleared existing disconnect timeout for player ${playerMatchId}`);
     }
 
-    this.disconnectedPlayers.set(playerId, { timeoutId, matchId });
-    logger.info(`Player ${playerId} disconnected from match ${matchId}`);
+    this.disconnectedPlayers.set(playerMatchId, { timeoutId, matchId });
+    logger.info(`Player ${playerMatchId} disconnected from match ${matchId}`);
   }
 
-  private removeDisconnectedPlayer(playerId: string) {
-    if (this.disconnectedPlayers.has(playerId)) {
-      clearTimeout(this.disconnectedPlayers.get(playerId)!.timeoutId);
-      logger.info(`Cleared disconnect timeout for player ${playerId}`);
-      this.disconnectedPlayers.delete(playerId);
-      logger.info(`Removed player ${playerId} from disconnected players list`);
+  private removeDisconnectedPlayer(playerMatchId: string) {
+    if (this.disconnectedPlayers.has(playerMatchId)) {
+      clearTimeout(this.disconnectedPlayers.get(playerMatchId)!.timeoutId);
+      logger.info(`Cleared disconnect timeout for player ${playerMatchId}`);
+      this.disconnectedPlayers.delete(playerMatchId);
+      logger.info(`Removed player ${playerMatchId} from disconnected players list`);
       return;
     }
   }
@@ -166,13 +168,13 @@ class Matchmaker {
   } 
 
 
-  private findMatchInRegion(region: Region, playerId?: string): {  match?: Match,  disconnectedPlayer?: { timeoutId: NodeJS.Timeout } } {
+  private findMatchInRegion(region: Region, playerMatchId?: string): {  match?: Match,  disconnectedPlayer?: { timeoutId: NodeJS.Timeout } } {
     // If the player is reconnecting, prioritize that
-    if (playerId && this.disconnectedPlayers.has(playerId)) {
-      const disconnectedPlayerData = this.disconnectedPlayers.get(playerId)!;
+    if (playerMatchId && this.disconnectedPlayers.has(playerMatchId)) {
+      const disconnectedPlayerData = this.disconnectedPlayers.get(playerMatchId)!;
       const match = this.matches.get(disconnectedPlayerData.matchId);
       if (match) {
-        logger.info(`Reconnecting player ${playerId} to match ${disconnectedPlayerData.matchId}`);
+        logger.info(`Reconnecting player ${playerMatchId} to match ${disconnectedPlayerData.matchId}`);
         return { match, disconnectedPlayer: disconnectedPlayerData };
       }
     }
@@ -180,7 +182,7 @@ class Matchmaker {
     // Else return the first available match in the region with space
     for (const match of this.matches.values()) {
       if (match.getRegion() === region && match.getNumberOfPlayers() < config.MAX_PLAYERS_PER_MATCH) {
-        logger.info(`Found available match ${match.getId()} for player ${playerId}`);
+        logger.info(`Found available match ${match.getId()} for player ${playerMatchId}`);
         return { match };
       }
     }
