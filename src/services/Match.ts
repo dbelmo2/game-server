@@ -14,7 +14,7 @@ import { InputVector } from '../game/systems/Vector';
 import ObjectPool from '../game/systems/ObjectPool';
 
 
-// TODO:
+// TODO: (this is done, its the input debt system)
 // When using the previous input, add the input to a stack. If a player input
 // is then recieved, check the input at the top of the stack. If it matches the incoming input,
 // we've essentially already processed this input, so we can ignore it and pop the stack.
@@ -79,9 +79,7 @@ broadcasting gamesate with laasdt player input tick: 1931
 In these example logs, for the client, the jump occured at y = 1080, but at 1927, y was 1067.9166666666667
 matching the server position.
 
-TODO: fix lingering players bug where a player disconnects but is still in the match...
-perhaphs, instead of adding an afk timeout, we update when the last update was received and if its been more than 60 seconds, we remove them.
-We would check in the main game loop
+
 
 
 
