@@ -196,11 +196,6 @@ export class Match {
     logger.info(`Player ${name} (playerId: ${playerId}) joined match ${this.id} in region ${this.region}`);
     logger.info(`Match ${this.id} now has ${this.worldState.players.size} players`);
 
-    // Inform new player of current game state
-    socket.emit('stateUpdate', {
-      players: this.getFullPlayerBroadcastStates(),
-      projectiles: [],
-    });
     return playerId;
   }
 
@@ -846,9 +841,7 @@ export class Match {
     logger.info(`Match ${this.id} reset complete with ${this.worldState.players.size} players`);
     // Inform players of match reset
     for (const socket of this.sockets.values()) {
-      socket.emit('matchReset', {
-        players: this.getPlayerBroadcastState(),
-      });
+      socket.emit('matchReset');
     }
 
     this.matchIsActive = true;
