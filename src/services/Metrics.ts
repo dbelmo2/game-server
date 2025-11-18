@@ -19,6 +19,8 @@ export interface ServerMetrics {
   broadcastsPerSecond: number;
   avgBroadcastSizeKB: number;
   totalBandwidthMBPerSec: number;
+  temporaryDisconnectsPerMinute: number;
+  reconnectsPerMinute: number;        
   
   // Player activity
   connectionsPerMinute: number;
@@ -27,6 +29,8 @@ export interface ServerMetrics {
   // Issues
   slowLoopsLastMinute: number; // Loops that exceeded target time
   errorCount: number;
+
+
 }
 
 interface MetricsCollector {
@@ -37,6 +41,8 @@ interface MetricsCollector {
   disconnectTimestamps: number[];
   slowLoops: number[];
   errors: number[];
+  temporaryDisconnectTimestamps: number[];
+  reconnectTimestamps: number[];
 }
 
 interface Thresholds {
@@ -61,6 +67,8 @@ export class MetricsManager {
     totalBandwidthMBPerSec: 0,
     connectionsPerMinute: 0,
     disconnectsPerMinute: 0,
+    temporaryDisconnectsPerMinute: 0,
+    reconnectsPerMinute: 0,
     slowLoopsLastMinute: 0,
     errorCount: 0,
   };
@@ -73,6 +81,8 @@ export class MetricsManager {
     disconnectTimestamps: [],
     slowLoops: [],
     errors: [],
+    temporaryDisconnectTimestamps: [],
+    reconnectTimestamps: [],
   };
 
   private thresholds: Thresholds = {
@@ -96,8 +106,7 @@ export class MetricsManager {
     }
     
     // Get memory limit
-    const memLimit = process.memoryUsage().heapTotal / 1024 / 1024;
-    this.metrics.memoryLimitMB = memLimit;
+    this.metrics.memoryLimitMB = 2048;
   }
 
   /**
@@ -231,9 +240,17 @@ export class MetricsManager {
     const recentDisconnects = this.collector.disconnectTimestamps.filter(
       t => t >= rollingWindowStart
     );
+    const recentTemporaryDisconnects = this.collector.temporaryDisconnectTimestamps.filter(
+      t => t >= rollingWindowStart
+    );
+    const recentReconnects = this.collector.reconnectTimestamps.filter(
+      t => t >= rollingWindowStart
+    );
     
     this.metrics.connectionsPerMinute = recentConnections.length;
     this.metrics.disconnectsPerMinute = recentDisconnects.length;
+    this.metrics.temporaryDisconnectsPerMinute = recentTemporaryDisconnects.length;
+    this.metrics.reconnectsPerMinute = recentReconnects.length;
 
     // Issues
     const recentSlowLoops = this.collector.slowLoops.filter(
@@ -273,6 +290,7 @@ export class MetricsManager {
     // Activity
     logger.info(`👥 Player Activity (last 60s):`);
     logger.info(`   Connections: ${this.metrics.connectionsPerMinute} | Disconnects: ${this.metrics.disconnectsPerMinute}`);
+    logger.info(`   Temp Disconnects: ${this.metrics.temporaryDisconnectsPerMinute} | Reconnects: ${this.metrics.reconnectsPerMinute}`);
     
     // Issues
     if (this.metrics.slowLoopsLastMinute > 0 || this.metrics.errorCount > 0) {
@@ -341,6 +359,12 @@ export class MetricsManager {
       t => t >= rollingWindowStart
     );
     this.collector.disconnectTimestamps = this.collector.disconnectTimestamps.filter(
+      t => t >= rollingWindowStart
+    );
+    this.collector.temporaryDisconnectTimestamps = this.collector.temporaryDisconnectTimestamps.filter(
+      t => t >= rollingWindowStart
+    );
+    this.collector.reconnectTimestamps = this.collector.reconnectTimestamps.filter(
       t => t >= rollingWindowStart
     );
     this.collector.slowLoops = this.collector.slowLoops.filter(
@@ -419,4 +443,19 @@ game_server_errors_total ${this.metrics.errorCount}
     this.logMetrics();
     this.checkThresholds();
   }
+
+    /**
+     * Record a temporary player disconnection (within grace period)
+     */
+    public recordTemporaryDisconnect(): void {
+        this.collector.temporaryDisconnectTimestamps.push(Date.now());
+    }
+
+    /**
+     * Record a player reconnection (rejoined within grace period)
+     */
+    public recordReconnect(): void {
+        this.collector.reconnectTimestamps.push(Date.now());
+    }
+
 }

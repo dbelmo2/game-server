@@ -77,6 +77,7 @@ class Matchmaker {
           if (!player.playerMatchId) {
             throw new Error(`playerMatchID is required for rejoining a match`);
           }
+          this.metricsManager.recordReconnect();
           const { timeoutId } = disconnectedPlayer;
           match.rejoinPlayer(player.socket, player.playerMatchId, timeoutId);
           player.socket.emit('rejoinedMatch', { 
@@ -117,10 +118,12 @@ class Matchmaker {
   }
 
   private setDisconnectedPlayer(playerMatchId: string, matchId: string, timeoutId: NodeJS.Timeout) {
+    this.metricsManager.recordTemporaryDisconnect();
     if (this.disconnectedPlayers.has(playerMatchId)) {
       clearTimeout(this.disconnectedPlayers.get(playerMatchId)!.timeoutId);
       logger.info(`Cleared existing disconnect timeout for player ${playerMatchId}`);
     }
+
 
     this.disconnectedPlayers.set(playerMatchId, { timeoutId, matchId });
     logger.info(`Player ${playerMatchId} disconnected from match ${matchId}`);
