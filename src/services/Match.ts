@@ -582,7 +582,7 @@ export class Match {
 
 
   // Extract state broadcast into its own method
-  public broadcastGameState(): void {
+  public broadcastGameState(): number | undefined {
     try {
 
       const projectileState = Array.from(this.worldState.projectiles.values())
@@ -598,9 +598,16 @@ export class Match {
         projectiles: projectileState,
       };
 
+          
+      const stateString = JSON.stringify(gameState);
+      const sizeInBytes = Buffer.byteLength(stateString, 'utf8');
+
+
       for (const socket of this.sockets.values()) {
         socket.emit('stateUpdate', gameState);
       }
+
+      return sizeInBytes;
 
     } catch (error) {
       this.handleError(error as Error, 'broadcastState');

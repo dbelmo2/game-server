@@ -2,14 +2,13 @@ import { config } from "../config/config";
 import logger from "../utils/logger";
 import { Match } from "./Match";
 import { Socket } from "socket.io";
+import { MetricsManager } from "./Metrics";
 
 export type Region = 'NA' | 'EU' | 'ASIA' | 'GLOBAL';
 
-
-const BROADCAST_HZ = 30;                   // 100 ms, 10 updates per second
-const FRAME_MS     = 1000 / BROADCAST_HZ;  // outer‑loop cadence
-
-const BROADBCAST_BATCH_SIZE = 50;          // Number of matches to broadcast per loop iteration
+const BROADCAST_HZ = 30;
+const FRAME_MS = 1000 / BROADCAST_HZ;
+const BROADBCAST_BATCH_SIZE = 50; // Number of matches to broadcast per loop iteration
 
 type QueuedPlayer = {
   socket: Socket;
@@ -20,16 +19,35 @@ type QueuedPlayer = {
   playerMatchId?: string;
 };
 
-
 class Matchmaker {
   private matches: Map<string, Match>;
   private disconnectedPlayers: Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>;
   private lastBroadcast: number = Date.now();
-  private showisLive: boolean = false; // This should be set based on your application logic
+  private showisLive: boolean = false;
+  
+  // Metrics Manager
+  private metricsManager: MetricsManager;
   
   constructor() {
     this.disconnectedPlayers = new Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>();
     this.matches = new Map<string, Match>();
+    
+    // Initialize metrics manager with custom thresholds
+    this.metricsManager = new MetricsManager(
+      10000, // Log every 10 seconds
+      {
+        maxLoopTimeMs: 33,        // Should complete in < 33ms for 30Hz
+        maxMemoryPercent: 80,     // Alert at 80% memory
+        maxBandwidthMBPerSec: 50, // Alert at 50MB/sec
+        targetLoopsPerSecond: 30, // Target 30 loops/sec
+      }
+    );
+    
+    // Start metrics collection
+    this.metricsManager.start();
+    logger.info('MetricsManager initialized and started');
+    
+    // Start server loop
     this.serverLoop();
   }
 
@@ -39,7 +57,10 @@ class Matchmaker {
 
   public enqueuePlayer(player: QueuedPlayer) {
     try {
-      const { match, disconnectedPlayer }  = this.findMatchInRegion(player.region, player.playerMatchId);
+      // Record connection metric
+      this.metricsManager.recordConnection();
+      
+      const { match, disconnectedPlayer } = this.findMatchInRegion(player.region, player.playerMatchId);
       if (match) {
         if (!disconnectedPlayer) {
           logger.info(`Adding player with socket ${player.socket.id} to existing match ${match.getId()} in region ${player.region}`);
@@ -86,11 +107,15 @@ class Matchmaker {
         });
       }
     } catch (error) {
-        logger.error(`Error enqueuing player ${player.id}: ${error}`);
-        player.socket.emit('error', { message: 'Internal server error while joining match' });
-        player.socket.disconnect(true);
+      // Record error metric
+      this.metricsManager.recordError();
+      
+      logger.error(`Error enqueuing player ${player.id}: ${error}`);
+      player.socket.emit('error', { message: 'Internal server error while joining match' });
+      player.socket.disconnect(true);
     }
   }
+
   private setDisconnectedPlayer(playerMatchId: string, matchId: string, timeoutId: NodeJS.Timeout) {
     if (this.disconnectedPlayers.has(playerMatchId)) {
       clearTimeout(this.disconnectedPlayers.get(playerMatchId)!.timeoutId);
@@ -102,6 +127,9 @@ class Matchmaker {
   }
 
   private removeDisconnectedPlayer(playerMatchId: string) {
+    // Record disconnect metric
+    this.metricsManager.recordDisconnect();
+    
     if (this.disconnectedPlayers.has(playerMatchId)) {
       clearTimeout(this.disconnectedPlayers.get(playerMatchId)!.timeoutId);
       logger.info(`Cleared disconnect timeout for player ${playerMatchId}`);
@@ -120,55 +148,77 @@ class Matchmaker {
   }
 
   private serverLoop = () => {
+    const loopStart = Date.now();
     const now = Date.now();
     
     if (now - this.lastBroadcast >= FRAME_MS) {
-      // Update & broadcast at 30Hz
-      this.matches.forEach(match => {
-        if (match.getIsReady() && !match.getShouldRemove()) {
-          match.update();
-          match.broadcastGameState();
-          if (this.showisLive === true) {
-            match.informShowIsLive();
+      try {
+        // Update server state metrics before processing
+        const totalPlayers = Array.from(this.matches.values())
+          .reduce((sum, match) => sum + match.getNumberOfPlayers(), 0);
+        this.metricsManager.updateServerState(this.matches.size, totalPlayers);
+
+        // Update & broadcast at 30Hz
+        this.matches.forEach(match => {
+          if (match.getIsReady() && !match.getShouldRemove()) {
+            match.update();
+            
+            // Record broadcast metrics
+            const broadcastSize = match.broadcastGameState();
+            if (broadcastSize) {
+              this.metricsManager.recordBroadcast(broadcastSize);
+            }
+            
+            if (this.showisLive === true) {
+              match.informShowIsLive();
+            }
+          } else if (match.getShouldRemove()) {
+            this.removeMatch(match);
           }
-        } else if (match.getShouldRemove()) {
-          this.removeMatch(match);
-        }
-      });
-      
-      this.showisLive = false;
-      this.lastBroadcast = now;
+        });
+        
+        this.showisLive = false;
+        this.lastBroadcast = now;
+      } catch (error) {
+        // Record error metric
+        this.metricsManager.recordError();
+        logger.error(`Error in server loop: ${error}`);
+      }
     }
 
+    // Record loop timing
+    const loopDuration = Date.now() - loopStart;
+    this.metricsManager.recordLoop(loopDuration);
+
+    // Adaptive sleep
     setTimeout(
       this.serverLoop, 
       Math.max(1, FRAME_MS - (Date.now() - this.lastBroadcast))
     );
-  }
-
+  };
 
   private removeMatch = (match: Match) => {
-      const matchId = match.getId();
-      logger.info(`Removing match ${matchId}`);  
+    const matchId = match.getId();
+    logger.info(`Removing match ${matchId}`);  
 
-      if (!this.matches.has(matchId)) {
-        logger.warn(`Match ${matchId} already removed from matchmaker`);
-        return; // Exit early if already removed
-      }
-      for (const playerId of match.getPlayerIds()) {
-        this.removeDisconnectedPlayer(playerId);
-      }
-      
-      // Remove from map first to prevent recursion
-      this.matches.delete(matchId);
-      
-      // Then clean up resources
-      match.cleanUpSession();
-      logger.info(`Match ${matchId} removed from matchmaker`);
-  } 
+    if (!this.matches.has(matchId)) {
+      logger.warn(`Match ${matchId} already removed from matchmaker`);
+      return;
+    }
+    
+    for (const playerId of match.getPlayerIds()) {
+      this.removeDisconnectedPlayer(playerId);
+    }
+    
+    // Remove from map first to prevent recursion
+    this.matches.delete(matchId);
+    
+    // Then clean up resources
+    match.cleanUpSession();
+    logger.info(`Match ${matchId} removed from matchmaker`);
+  };
 
-
-  private findMatchInRegion(region: Region, playerMatchId?: string): {  match?: Match,  disconnectedPlayer?: { timeoutId: NodeJS.Timeout } } {
+  private findMatchInRegion(region: Region, playerMatchId?: string): { match?: Match, disconnectedPlayer?: { timeoutId: NodeJS.Timeout } } {
     // If the player is reconnecting, prioritize that
     if (playerMatchId && this.disconnectedPlayers.has(playerMatchId)) {
       const disconnectedPlayerData = this.disconnectedPlayers.get(playerMatchId)!;
@@ -194,7 +244,74 @@ class Matchmaker {
     return `match-${Math.random().toString(36).substring(2, 8)}`;
   }
 
+  // ==================== Metrics API ====================
+  
+  /**
+   * Get current metrics snapshot
+   * Useful for health check endpoints or admin dashboards
+   */
+  public getMetrics() {
+    return this.metricsManager.getMetrics();
+  }
+
+  /**
+   * Get metrics in Prometheus format
+   * Useful for external monitoring tools
+   */
+  public getPrometheusMetrics(): string {
+    return this.metricsManager.getPrometheusMetrics();
+  }
+
+  /**
+   * Force an immediate metrics log
+   * Useful for debugging or before shutdown
+   */
+  public forceMetricsLog(): void {
+    this.metricsManager.forceLog();
+  }
+
+  /**
+   * Graceful shutdown
+   * Cleans up all resources and logs final metrics
+   */
+  public shutdown(): void {
+    logger.info('Shutting down matchmaker...');
+    
+    // Stop metrics collection
+    this.metricsManager.stop();
+    
+    // Force final metrics log
+    this.metricsManager.forceLog();
+    
+    // Clean up all matches
+    for (const match of this.matches.values()) {
+      match.cleanUpSession();
+    }
+    this.matches.clear();
+    
+    // Clear disconnected players
+    for (const { timeoutId } of this.disconnectedPlayers.values()) {
+      clearTimeout(timeoutId);
+    }
+    this.disconnectedPlayers.clear();
+    
+    logger.info('Matchmaker shutdown complete');
+  }
 }
 
 const matchMaker = new Matchmaker();
+
+// Graceful shutdown handlers
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received - initiating graceful shutdown');
+  matchMaker.shutdown();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  logger.info('SIGINT received - initiating graceful shutdown');
+  matchMaker.shutdown();
+  process.exit(0);
+});
+
 export default matchMaker;

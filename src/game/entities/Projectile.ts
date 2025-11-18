@@ -32,10 +32,6 @@ export class Projectile  {
     this.vy = dirY * this.speed;
   }
 
-  // TODO: update collision logic for tomatos? Or verify that the desync in collisions is due to this. 
-  // Current slight y desync is caused by y value being different on client and server for the player. server has 1030 when on ground,
-  // client has 1145.
-
   constructor(
     id: string,
     ownerId: string,
