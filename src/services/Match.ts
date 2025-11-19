@@ -604,7 +604,7 @@ export class Match {
       }
 
 
-      const playerStates = this.pendingFullStateBroadcast ? this.getPlayerBroadcastState() : this.getFullPlayerBroadcastStates();
+      const playerStates = this.pendingFullStateBroadcast === false ? this.getPlayerBroadcastState() : this.getFullPlayerBroadcastStates();
       this.pendingFullStateBroadcast = false;
 
       const gameState = {
