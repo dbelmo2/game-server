@@ -49,8 +49,15 @@ export type InputPayload = {
   vector: InputVector;
 }
 
-const MAX_KILL_AMOUNT = 3; // Adjust this value as needed
+const MAX_KILL_AMOUNT = 5; // Adjust this value as needed
 
+
+
+// TODO: HIGH PRIORITY BUG
+// Fix disconnect bug where a player lingers after disconnecting and after
+// the grace period expires... Players that join after can see the lingering player.
+// Idea: rather than use a timeout, keep some sort of set of disconnected players and repeatedly check it every 
+// so often to remove any players in there affter the grace period from game state.
 
 // TODO: Fix issue where, the jump command arrives while the server position is still in the air,
 // but the client is on the ground. In this situation, the server and the client are synced up to a tick before the jump arrives,
@@ -716,8 +723,10 @@ export class Match {
     }
 
     const timeout = setTimeout(() => {
+      logger.info(`Grace period timeout fired for player ${playerId} in match ${this.id}. Executing removal...`);
       this.removePlayerFromGameState(playerId, socketId)
       this.timeoutIds.delete(timeout);
+      logger.info(`Grace period timeout completed for player ${playerId} in match ${this.id}`);
     }, this.DISCONNECT_GRACE_PERIOD_MS);
 
     this.timeoutIds.add(timeout);
@@ -745,15 +754,18 @@ export class Match {
 
       const player = this.worldState.players.get(playerId);
       if (!player) {
-        logger.warn(`Player UUID ${playerId} not found in match ${this.id} during removal process`);
+        logger.warn(`Player UUID ${playerId} not found in match ${this.id} during removal process. Players remaining: ${this.worldState.players.size}`);
+        return; // Early return if player not found
       }
-      player?.destroy();
+      
+      logger.info(`Found player ${player.getName()} (${playerId}) in match ${this.id}. Proceeding with removal.`);
+      player.destroy();
 
       this.respawnQueue.delete(playerId);
       
-
       // Actually remove the player now
       this.worldState.players.delete(playerId);
+      logger.info(`Removed player ${playerId} from worldState. Remaining players: ${this.worldState.players.size}`);
 
       // Clean up from our tracking map
       this.sockets.delete(playerId);
