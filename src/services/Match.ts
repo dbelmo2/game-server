@@ -85,6 +85,8 @@ matching the server position.
 
 */
 
+// TODO: Critical bug.. state update for a player joining the match is incomplete. if an enemy
+// become non bystander before a player joins, they will be shown as a bystander to any players that join after.
 export class Match {
   private readonly GAME_WIDTH = 1920;  // Fixed game width
   private readonly GAME_HEIGHT = 1080; // Fixed game height
@@ -104,6 +106,7 @@ export class Match {
 
   
 
+  private pendingFullStateBroadcast = false;
 
   private matchResetTimeout: NodeJS.Timeout | null = null;
   private AFK_THRESHOLD_MS = 60000; // 60 seconds of inactivity
@@ -193,6 +196,7 @@ export class Match {
     this.setUpPlayerSocketHandlers(playerMatchId, socket);
     logger.info(`Player ${name} (playerId: ${playerMatchId}) joined match ${this.id} in region ${this.region}`);
     logger.info(`Match ${this.id} now has ${this.worldState.players.size} players`);
+
 
     return playerMatchId;
   }
@@ -461,6 +465,8 @@ export class Match {
     socket.on('m-ping', (data) => this.handlePing(socket, data));
     socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(playerId, inputPayload));
     socket.on('projectileHit', (enemyId) => this.handleProjectileHit(playerId, enemyId));
+
+    this.broadcastFullStateNextLoop();
   }
 // Left off reviewing disconnect changes here. CHeck disconnect-notes.txt
   private handleProjectileHit(playerId: string, enemyId: string): void {
@@ -579,6 +585,9 @@ export class Match {
     }
   }
 
+  public broadcastFullStateNextLoop() {
+    this.pendingFullStateBroadcast = true;
+  }
 
 
   // Extract state broadcast into its own method
@@ -589,8 +598,15 @@ export class Match {
         .filter((state) => state.shouldBeDestroyed === false)
         .map((projectile) => projectile.getState());
 
-      const playerStates = this.getPlayerBroadcastState();
-      
+
+      if (this.pendingFullStateBroadcast) {
+        logger.info(`Broadcasting full game state for match ${this.id} as requested by MatchMaker`);
+      }
+
+
+      const playerStates = this.pendingFullStateBroadcast ? this.getPlayerBroadcastState() : this.getFullPlayerBroadcastStates();
+      this.pendingFullStateBroadcast = false;
+
       const gameState = {
         sTick: this.serverTick,
         sTime: performance.now(),

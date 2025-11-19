@@ -24,7 +24,6 @@ class Matchmaker {
   private disconnectedPlayers: Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>;
   private lastBroadcast: number = Date.now();
   private showisLive: boolean = false;
-  
   // Metrics Manager
   private metricsManager: MetricsManager;
   
@@ -50,6 +49,8 @@ class Matchmaker {
     // Start server loop
     this.serverLoop();
   }
+
+
 
   public setShowIsLive(show: boolean) {
     this.showisLive = show;
@@ -84,6 +85,7 @@ class Matchmaker {
             matchId: match.getId(), 
             region: player.region 
           });
+          
           this.removeDisconnectedPlayer(player.playerMatchId);
         }
         player.socket.join(match.getId());
