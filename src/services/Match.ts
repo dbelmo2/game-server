@@ -59,6 +59,13 @@ const MAX_KILL_AMOUNT = 4; // Adjust this value as needed
 // Idea: rather than use a timeout, keep some sort of set of disconnected players and repeatedly check it every 
 // so often to remove any players in there affter the grace period from game state.
 
+
+// Other bugs found are
+// 1. health prediction ... minor but theres sometimes a slight delay in health updates 
+// causing a quick flicker in health bar...
+// 2. Score display not centered when dev tools open
+// 3. 
+
 // TODO: Fix issue where, the jump command arrives while the server position is still in the air,
 // but the client is on the ground. In this situation, the server and the client are synced up to a tick before the jump arrives,
 // yet for some reason the server position is still in the air.
@@ -140,12 +147,15 @@ export class Match {
   private timeoutIds: Set<NodeJS.Timeout> = new Set();
   private sockets: Map<string, Socket> = new Map(); // TODO: Does this grow indefinitely? transform to map?
   private respawnQueue: Set<string> = new Set();
+  private disconnectedPlayerCleanup: Map<string, { playerId: string, socketId: string, disconnectTime: number }> = new Map();
+  private cleanupInterval: NodeJS.Timeout | null = null;
   private matchIsActive = false;
   private lastUpdateTime = Date.now();
   private isReady = false; // Utilized by parent loop
   private accumulator: number = 0;
   private shouldRemove = false;
   private serverTick = 0;
+
 
   constructor(
     firstPlayerSocket: Socket,
@@ -164,6 +174,12 @@ export class Match {
 
     logger.info(`Match ${this.id} created in region ${region} with first player ${firstPlayerName}`);
     // Start game loop loop (this will broadcast the game state to all players)
+    
+    // Start periodic cleanup for disconnected players (every 3 seconds)
+    this.cleanupInterval = setInterval(() => {
+      this.processDisconnectedPlayerCleanup();
+    }, 3000);
+    this.timeoutIds.add(this.cleanupInterval);
   }
 
 
@@ -208,7 +224,7 @@ export class Match {
     return playerMatchId;
   }
 
-  public rejoinPlayer(socket: Socket, playerMatchId: string, timeoutId: NodeJS.Timeout): void {
+  public rejoinPlayer(socket: Socket, playerMatchId: string): void {
     const player = this.worldState.players.get(playerMatchId);
     if (!player) {
       logger.error(`Player ${playerMatchId} attempted to rejoin match ${this.id} but was not found in game state`);
@@ -219,8 +235,13 @@ export class Match {
     }
     
     player.setDisconnected(false);
-    clearTimeout(timeoutId);
-    this.timeoutIds.delete(timeoutId);
+    
+    // Remove from disconnect cleanup map instead of clearing timeout
+    if (this.disconnectedPlayerCleanup.has(playerMatchId)) {
+      this.disconnectedPlayerCleanup.delete(playerMatchId);
+      logger.info(`Removed player ${playerMatchId} from disconnect cleanup queue`);
+    }
+    
     this.sockets.set(playerMatchId, socket);
     this.removeDisconnectedPlayerCallback(playerMatchId);
     this.setUpPlayerSocketHandlers(playerMatchId, socket);
@@ -301,6 +322,39 @@ export class Match {
             }
         }
       }
+  }
+
+  /**
+   * Process disconnected players and remove those who exceeded grace period
+   */
+  private processDisconnectedPlayerCleanup(): void {
+    const currentTime = Date.now();
+    const playersToRemove: string[] = [];
+
+    for (const [key, disconnectInfo] of this.disconnectedPlayerCleanup.entries()) {
+      const { playerId, socketId, disconnectTime } = disconnectInfo;
+      
+      // Check if grace period has elapsed
+      if (currentTime - disconnectTime > this.DISCONNECT_GRACE_PERIOD_MS) {
+        logger.info(`Grace period elapsed for player ${playerId} in match ${this.id}. Scheduling for removal...`);
+        playersToRemove.push(key);
+        
+        // Remove from game state
+        this.removePlayerFromGameState(playerId, socketId);
+        this.removeDisconnectedPlayerCallback(playerId);
+      }
+    }
+
+    // Clean up processed entries
+    for (const key of playersToRemove) {
+      this.disconnectedPlayerCleanup.delete(key);
+    }
+
+    // Log cleanup status for debugging
+    if (this.disconnectedPlayerCleanup.size > 0) {
+      logger.debug(`Disconnect cleanup check complete. ${this.disconnectedPlayerCleanup.size} players still in grace period for match ${this.id}`);
+    }
+
   }
 
   public getPlayerIds(): string[] {
@@ -724,19 +778,18 @@ export class Match {
       return;
     }
 
-    const timeout = setTimeout(() => {
-      logger.info(`Grace period timeout fired for player ${playerId} in match ${this.id}. Executing removal...`);
-      this.removePlayerFromGameState(playerId, socketId)
-      this.timeoutIds.delete(timeout);
-      logger.info(`Grace period timeout completed for player ${playerId} in match ${this.id}`);
-    }, this.DISCONNECT_GRACE_PERIOD_MS);
+    // Add to disconnect cleanup map instead of using timeout
+    const disconnectTime = Date.now();
+    this.disconnectedPlayerCleanup.set(playerId, {
+      playerId,
+      socketId,
+      disconnectTime
+    });
 
-    this.timeoutIds.add(timeout);
-
-    this.setDisconnectedPlayerCallback(playerId, this.id, timeout);
+    this.setDisconnectedPlayerCallback(playerId, this.id, {} as NodeJS.Timeout); // Pass dummy timeout for now
     player.setDisconnected(true);
 
-    logger.info(`Player (UUID: ${playerId}) disconnected from match ${this.id}. Reason: ${reason}`);
+    logger.info(`Player (UUID: ${playerId}) disconnected from match ${this.id} at ${disconnectTime}. Reason: ${reason}. Grace period: ${this.DISCONNECT_GRACE_PERIOD_MS}ms`);
 
     // Remove socket from active sockets list but keep player in game state
     // (This is done as reconnecting players will get a new socket ID)

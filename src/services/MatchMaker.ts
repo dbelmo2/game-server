@@ -21,14 +21,14 @@ type QueuedPlayer = {
 
 class Matchmaker {
   private matches: Map<string, Match>;
-  private disconnectedPlayers: Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>;
+  private disconnectedPlayers: Map<string, { matchId: string }>;
   private lastBroadcast: number = Date.now();
   private showisLive: boolean = false;
   // Metrics Manager
   private metricsManager: MetricsManager;
   
   constructor() {
-    this.disconnectedPlayers = new Map<string, { matchId: string, timeoutId: NodeJS.Timeout }>();
+    this.disconnectedPlayers = new Map<string, { matchId: string }>();
     this.matches = new Map<string, Match>();
     
     // Initialize metrics manager with custom thresholds
@@ -79,8 +79,7 @@ class Matchmaker {
             throw new Error(`playerMatchID is required for rejoining a match`);
           }
           this.metricsManager.recordReconnect();
-          const { timeoutId } = disconnectedPlayer;
-          match.rejoinPlayer(player.socket, player.playerMatchId, timeoutId);
+          match.rejoinPlayer(player.socket, player.playerMatchId);
           player.socket.emit('rejoinedMatch', { 
             matchId: match.getId(), 
             region: player.region 
@@ -119,15 +118,9 @@ class Matchmaker {
     }
   }
 
-  private setDisconnectedPlayer(playerMatchId: string, matchId: string, timeoutId: NodeJS.Timeout) {
+  private setDisconnectedPlayer(playerMatchId: string, matchId: string,) {
     this.metricsManager.recordTemporaryDisconnect();
-    if (this.disconnectedPlayers.has(playerMatchId)) {
-      clearTimeout(this.disconnectedPlayers.get(playerMatchId)!.timeoutId);
-      logger.info(`Cleared existing disconnect timeout for player ${playerMatchId}`);
-    }
-
-
-    this.disconnectedPlayers.set(playerMatchId, { timeoutId, matchId });
+    this.disconnectedPlayers.set(playerMatchId, { matchId });
     logger.info(`Player ${playerMatchId} disconnected from match ${matchId}`);
   }
 
@@ -136,8 +129,6 @@ class Matchmaker {
     this.metricsManager.recordDisconnect();
     
     if (this.disconnectedPlayers.has(playerMatchId)) {
-      clearTimeout(this.disconnectedPlayers.get(playerMatchId)!.timeoutId);
-      logger.info(`Cleared disconnect timeout for player ${playerMatchId}`);
       this.disconnectedPlayers.delete(playerMatchId);
       logger.info(`Removed player ${playerMatchId} from disconnected players list`);
       return;
@@ -223,7 +214,7 @@ class Matchmaker {
     logger.info(`Match ${matchId} removed from matchmaker`);
   };
 
-  private findMatchInRegion(region: Region, playerMatchId?: string): { match?: Match, disconnectedPlayer?: { timeoutId: NodeJS.Timeout } } {
+  private findMatchInRegion(region: Region, playerMatchId?: string): { match?: Match, disconnectedPlayer?: { matchId: string } } {
     // If the player is reconnecting, prioritize that
     if (playerMatchId && this.disconnectedPlayers.has(playerMatchId)) {
       const disconnectedPlayerData = this.disconnectedPlayers.get(playerMatchId)!;
@@ -294,10 +285,6 @@ class Matchmaker {
     }
     this.matches.clear();
     
-    // Clear disconnected players
-    for (const { timeoutId } of this.disconnectedPlayers.values()) {
-      clearTimeout(timeoutId);
-    }
     this.disconnectedPlayers.clear();
     
     logger.info('Matchmaker shutdown complete');
