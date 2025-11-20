@@ -49,7 +49,7 @@ export type InputPayload = {
   vector: InputVector;
 }
 
-const MAX_KILL_AMOUNT = 5; // Adjust this value as needed
+const MAX_KILL_AMOUNT = 4; // Adjust this value as needed
 
 
 
@@ -606,12 +606,14 @@ export class Match {
         .map((projectile) => projectile.getState());
 
 
-      if (this.pendingFullStateBroadcast) {
-        logger.info(`Broadcasting full game state for match ${this.id} as requested by MatchMaker`);
-      }
+
 
 
       const playerStates = this.pendingFullStateBroadcast === false ? this.getPlayerBroadcastState() : this.getFullPlayerBroadcastStates();
+        if (this.pendingFullStateBroadcast) {
+        logger.info(`Broadcasting full game state for match ${this.id} as requested by MatchMaker`);
+        console.log(playerStates)
+      }
       this.pendingFullStateBroadcast = false;
 
       const gameState = {
@@ -870,8 +872,15 @@ export class Match {
       
       // Reset scores for new round - now handled by Player class
       player.resetScore();
+      
     }
+    console.log(`Player scores reset:`, this.getAllPlayerScores());
     logger.info(`Match ${this.id} reset complete with ${this.worldState.players.size} players`);
+    
+    // Force a full state broadcast to all clients immediately after reset
+    this.broadcastFullStateNextLoop();
+    logger.info(`Scheduled full state broadcast after match reset for match ${this.id}`);
+    
     // Inform players of match reset
     for (const socket of this.sockets.values()) {
       socket.emit('matchReset');
@@ -917,6 +926,9 @@ export class Match {
       // Use delta method to only send changed data
       const deltaState = player.getLatestStateDelta();
       states.push(deltaState);
+      if (deltaState.kills || deltaState.deaths) {
+        logger.debug(`Player ${player.getName()} (${player.getId()}) delta state includes kills/deaths: kills=${deltaState.kills}, deaths=${deltaState.deaths}`);
+      }
     }
     return states;
   }
