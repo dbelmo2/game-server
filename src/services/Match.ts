@@ -163,7 +163,8 @@ export class Match {
     region: Region,
     id = `match-${Math.random().toString(36).substring(2, 8)}`,
     private setDisconnectedPlayerCallback: (playerId: string, matchId: string, timeoutId: NodeJS.Timeout) => void,
-    private removeDisconnectedPlayerCallback: (playerId: string) => void
+    private removeDisconnectedPlayerCallback: (playerId: string) => void,
+    private io?: any // Socket.IO server instance
   ) {
     this.id = id;
     this.region = region;
@@ -294,8 +295,12 @@ export class Match {
 
   public informShowIsLive(): void { 
     logger.info(`Match ${this.id} is live! Informing players...`);
-    for (const socket of this.sockets.values()) {
-      socket.emit('showIsLive');
+    if (this.io) {
+      this.io.to(this.id).emit('showIsLive');
+    } else {
+      for (const socket of this.sockets.values()) {
+        socket.emit('showIsLive');
+      }
     }
   }
   
@@ -340,7 +345,7 @@ export class Match {
         playersToRemove.push(key);
         
         // Remove from game state
-        this.removePlayerFromGameState(playerId, socketId);
+        this.removePlayerFromGameState(playerId);
         this.removeDisconnectedPlayerCallback(playerId);
       }
     }
@@ -628,9 +633,14 @@ export class Match {
         }
       }
     
-      for (const socket of this.sockets.values()) {
-        logger.info(`Emitting gameOver event to player socket ${socket.id} in match ${this.id}`);
-        socket.emit('gameOver', sortedScores);
+      if (this.io) {
+        logger.info(`Emitting gameOver event to room ${this.id} in match ${this.id}`);
+        this.io.to(this.id).emit('gameOver', sortedScores);
+      } else {
+        for (const socket of this.sockets.values()) {
+          logger.info(`Emitting gameOver event to player socket ${socket.id} in match ${this.id}`);
+          socket.emit('gameOver', sortedScores);
+        }
       }
 
       this.respawnQueue.clear();
@@ -681,9 +691,14 @@ export class Match {
       const stateString = JSON.stringify(gameState);
       const sizeInBytes = Buffer.byteLength(stateString, 'utf8');
 
-
-      for (const socket of this.sockets.values()) {
-        socket.emit('stateUpdate', gameState);
+      // Use room broadcasting if io instance is available, otherwise fallback to loop
+      if (this.io) {
+        this.io.to(this.id).emit('stateUpdate', gameState);
+      } else {
+        // Fallback to individual socket emissions
+        for (const socket of this.sockets.values()) {
+          socket.emit('stateUpdate', gameState);
+        }
       }
 
       return sizeInBytes;
@@ -800,7 +815,7 @@ export class Match {
 
 
 
-  private removePlayerFromGameState(playerId: string, socketId: string): void {
+  private removePlayerFromGameState(playerId: string): void {
       // If the timeout executes, the player did not reconnect in time
       logger.info(`Player ${playerId} did not reconnect within grace period. Removing from match ${this.id}.`);
 
@@ -935,8 +950,12 @@ export class Match {
     logger.info(`Scheduled full state broadcast after match reset for match ${this.id}`);
     
     // Inform players of match reset
-    for (const socket of this.sockets.values()) {
-      socket.emit('matchReset');
+    if (this.io) {
+      this.io.to(this.id).emit('matchReset');
+    } else {
+      for (const socket of this.sockets.values()) {
+        socket.emit('matchReset');
+      }
     }
 
     this.matchIsActive = true;
