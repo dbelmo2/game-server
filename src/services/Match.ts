@@ -52,20 +52,36 @@ export type InputPayload = {
 const MAX_KILL_AMOUNT = 4; // Adjust this value as needed
 
 
+// CRITICAL BUG:
+// 1. when the player is moving and shooting, the aiming is off. if they click directly above their headm
+// the bullet is shot up but angled towards the direction theyre moving from. This might not be a bug(?) but rather a style choice?
+// 
+// 2. there is a mismatch between client damage applied and server damage. the client often applies more damage
+// both to enemies and the self. this is then undone the by the server stateUpdate
+// 
+//  additional notes: After reverting the previous fix to the health bar flicker bug, we can see that 
+//  There is a bug occuring with the predicted health of the self player where it seems that the prediceted health goes down more than it should causing a damage mismatch
+//  logging collisions and the predicted health right before from both the shooter and victims perspective shows the victimes console
+//  will randomly have a bit lower of predicted health right before a shot. 
 
-// TODO: HIGH PRIORITY BUG
-// Fix disconnect bug where a player lingers after disconnecting and after
-// the grace period expires... Players that join after can see the lingering player.
-// Idea: rather than use a timeout, keep some sort of set of disconnected players and repeatedly check it every 
-// so often to remove any players in there affter the grace period from game state.
-
+// root cause for health mismatch issue (client is over predicting damage done to them by other players.):: 
+// it seems that the setHealth with the updated health is being from the 
+// server is occuring from UpdatePlayerHealth, before the clientside prediction is 
+// able to occur for that same bullet. i think this is causing the mismatch. 
+// By the time that the client has simulated the enemy bullet which will hit them, 
+// it has already applied the updated (lower) health that the server is sending it. 
+// it then tries to apply the bullet damage but this is incorrect as the bullet damage 
+// was teken into account in the server in the updated health it sent it...
+// One prob not great idea to solve this is to mark projectiles as already having applied their damage on server side 
+// so clients know not to apply damage for those projectiles when they simulate them.
+//
 
 // Other bugs found are
-// 1. health prediction ... minor but theres sometimes a slight delay in health updates 
-// causing a quick flicker in health bar...
 // 2. Score display not centered when dev tools open
-// 3. 
-
+// 3. tomato png appearing behind grass
+// 4. daily metrics in db?
+// 5. if a player disconnects right as they respawn, they remain suspended in the air for other players
+// -----------
 // TODO: Fix issue where, the jump command arrives while the server position is still in the air,
 // but the client is on the ground. In this situation, the server and the client are synced up to a tick before the jump arrives,
 // yet for some reason the server position is still in the air.
@@ -178,9 +194,10 @@ export class Match {
     
     // Start periodic cleanup for disconnected players (every 3 seconds)
     this.cleanupInterval = setInterval(() => {
+      // TODO: Check why this prints 3 times 
+      //console.log('Running disconnected player cleanup process...');
       this.processDisconnectedPlayerCleanup();
     }, 3000);
-    this.timeoutIds.add(this.cleanupInterval);
   }
 
 
@@ -371,7 +388,8 @@ export class Match {
   }
 
   public cleanUpSession() {
-    
+    this.cleanupInterval && clearInterval(this.cleanupInterval);
+    this.cleanupInterval = null;
     // Clear all timeout IDs
     for (const id of this.timeoutIds) {
       clearTimeout(id);
@@ -402,10 +420,12 @@ export class Match {
     this.sockets.clear();
     this.respawnQueue.clear();
 
+    
 
     this.setDisconnectedPlayerCallback = () => {};
     this.removeDisconnectedPlayerCallback = () => {};
 
+    
     logger.info(`Match ${this.id} ended and cleaned up \n\n`);
   }
 
