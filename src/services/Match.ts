@@ -1,5 +1,5 @@
 import { Socket } from 'socket.io';
-import { Projectile } from '../game/entities/Projectile';
+import { Projectile, ProjectileStateUpdate } from '../game/entities/Projectile';
 import logger from '../utils/logger';
 import { 
   testForAABB,
@@ -11,9 +11,10 @@ import {
 import { Player, PlayerState, PlayerStateBroadcast, PlayerStateBroadcastUpdate } from '../game/entities/Player';
 import { Platform } from '../game/entities/Platform';
 import { InputVector } from '../game/systems/Vector';
+import ObjectPool from '../game/systems/ObjectPool';
 
 
-// TODO:
+// TODO: (this is done, its the input debt system)
 // When using the previous input, add the input to a stack. If a player input
 // is then recieved, check the input at the top of the stack. If it matches the incoming input,
 // we've essentially already processed this input, so we can ignore it and pop the stack.
@@ -38,9 +39,8 @@ export type PlayerScore = {
 
 export type WorldState = {
     players: Map<string, Player>;
-    projectiles: Projectile[];
     platforms: Platform[];
-
+    playerInputCounts: Map<string, { count: number; windowStart: number }>;
 };
 
 export type InputPayload = {
@@ -48,9 +48,16 @@ export type InputPayload = {
   vector: InputVector;
 }
 
-const MAX_KILL_AMOUNT = 3; // Adjust this value as needed
+
+const MAX_KILL_AMOUNT = 4; // Adjust this value as needed
 
 
+// CRITICAL BUG:
+
+// 2. Score display not centered when dev tools open
+// 4. daily metrics in db?
+// 5. if a player disconnects right as they respawn, they remain suspended in the air for other players
+// -----------
 // TODO: Fix issue where, the jump command arrives while the server position is still in the air,
 // but the client is on the ground. In this situation, the server and the client are synced up to a tick before the jump arrives,
 // yet for some reason the server position is still in the air.
@@ -78,12 +85,6 @@ broadcasting gamesate with laasdt player input tick: 1931
 In these example logs, for the client, the jump occured at y = 1080, but at 1927, y was 1067.9166666666667
 matching the server position.
 
-TODO: fix lingering players bug where a player disconnects but is still in the match...
-perhaphs, instead of adding an afk timeout, we update when the last update was received and if its been more than 60 seconds, we remove them.
-We would check in the main game loop
-
-
-
 */
 
 export class Match {
@@ -94,6 +95,8 @@ export class Match {
   private readonly TICK_RATE = 30; // 60 ticks per second
   private readonly MIN_MS_BETWEEN_TICKS = 1000 / this.TICK_RATE;
   private readonly MIN_S_BETWEEN_TICKS = this.MIN_MS_BETWEEN_TICKS / 1000; // Convert to seconds
+  private readonly RATE_LIMIT_WINDOW_MS = 1000; // 1 second
+  private readonly MAX_INPUT_RATE = 100; // Max inputs per second
   private readonly GAME_BOUNDS = {
     left: 0,
     right: this.GAME_WIDTH,
@@ -101,6 +104,9 @@ export class Match {
     bottom: this.GAME_HEIGHT
   };
 
+  
+
+  private pendingFullStateBroadcast = false;
 
   private matchResetTimeout: NodeJS.Timeout | null = null;
   private AFK_THRESHOLD_MS = 60000; // 60 seconds of inactivity
@@ -109,17 +115,19 @@ export class Match {
 
   private worldState: WorldState = {
     players: new Map(),
-    projectiles: [],
     platforms: [],
+    playerInputCounts: new Map<string, { count: number; windowStart: number }>(),
   };
 
-  
+
   private id: string;
   private region: Region;
   private timeoutIds: Set<NodeJS.Timeout> = new Set();
-  private playerScores: Map<string, PlayerScore> = new Map();
   private sockets: Map<string, Socket> = new Map(); // TODO: Does this grow indefinitely? transform to map?
-  private respawnQueue: Map<string, string> = new Map();
+  private respawnQueue: Set<string> = new Set();
+  private projectileUpdates: Map<string, ProjectileStateUpdate> = new Map();
+  private disconnectedPlayerCleanup: Map<string, { playerId: string, socketId: string, disconnectTime: number }> = new Map();
+  private cleanupInterval: NodeJS.Timeout | null = null;
   private matchIsActive = false;
   private lastUpdateTime = Date.now();
   private isReady = false; // Utilized by parent loop
@@ -127,13 +135,15 @@ export class Match {
   private shouldRemove = false;
   private serverTick = 0;
 
+
   constructor(
     firstPlayerSocket: Socket,
     firstPlayerName: string,
     region: Region,
     id = `match-${Math.random().toString(36).substring(2, 8)}`,
     private setDisconnectedPlayerCallback: (playerId: string, matchId: string, timeoutId: NodeJS.Timeout) => void,
-    private removeDisconnectedPlayerCallback: (playerId: string) => void
+    private removeDisconnectedPlayerCallback: (playerId: string) => void,
+    private io?: any // Socket.IO server instance
   ) {
     this.id = id;
     this.region = region;
@@ -144,6 +154,12 @@ export class Match {
 
     logger.info(`Match ${this.id} created in region ${region} with first player ${firstPlayerName}`);
     // Start game loop loop (this will broadcast the game state to all players)
+    
+    // Start periodic cleanup for disconnected players (every 3 seconds)
+    this.cleanupInterval = setInterval(() => {
+      // TODO: Check why this prints 3 times 
+      this.processDisconnectedPlayerCleanup();
+    }, 3000);
   }
 
 
@@ -158,18 +174,18 @@ export class Match {
 
   public addPlayer(socket: Socket, name: string): string {
     // Truncate the last 4 digits of the players socket.id with the last 3 of the match id and use as their playerId
-    const playerId = socket.id.slice(0, -4) + this.id.slice(-3);
+    const playerMatchId = socket.id.slice(0, -4) + this.id.slice(-3);
     
-    if (this.sockets.has(playerId)) {
-      logger.warn(`Player ${playerId} is already connected to match ${this.id}`);
-      return playerId;
+    if (this.sockets.has(playerMatchId)) {
+      logger.warn(`Player ${playerMatchId} is already connected to match ${this.id}`);
+      return playerMatchId;
     }
 
-    this.sockets.set(playerId, socket);
+    this.sockets.set(playerMatchId, socket);
 
     // This is a new player
     const serverPlayer = new Player(
-      playerId, // Use UUID instead of socket.id
+      playerMatchId, // Use UUID instead of socket.id
       name, 
       this.STARTING_X,
       this.STARTING_Y,
@@ -178,49 +194,39 @@ export class Match {
 
     serverPlayer.setPlatforms(this.worldState.platforms);
     // Initialize new player as bystander
-    this.worldState.players.set(playerId, serverPlayer);
+    this.worldState.players.set(playerMatchId, serverPlayer);
 
-    this.playerScores.set(playerId, {
-      kills: 0,
-      deaths: 0,
-      name
-    });
-  
-    this.setUpPlayerSocketHandlers(playerId, socket);
-    logger.info(`Player ${name} (playerId: ${playerId}) joined match ${this.id} in region ${this.region}`);
+    this.setUpPlayerSocketHandlers(playerMatchId, socket);
+    logger.info(`Player ${name} (playerId: ${playerMatchId}) joined match ${this.id} in region ${this.region}`);
     logger.info(`Match ${this.id} now has ${this.worldState.players.size} players`);
 
-    // Inform new player of current game state
-    socket.emit('stateUpdate', {
-      players: this.getPlayerStates(),
-      projectiles: [],
-      scores: Array.from(this.playerScores.entries())
-        .map(([playerId, score]) => ({
-          playerId,
-          ...score
-        }))
-    });
-    return playerId;
+
+    return playerMatchId;
   }
 
-  public rejoinPlayer(socket: Socket, playerId: string, timeoutId: NodeJS.Timeout): void {
-    const player = this.worldState.players.get(playerId);
+  public rejoinPlayer(socket: Socket, playerMatchId: string): void {
+    const player = this.worldState.players.get(playerMatchId);
     if (!player) {
-      logger.error(`Player ${playerId} attempted to rejoin match ${this.id} but was not found in game state`);
+      logger.error(`Player ${playerMatchId} attempted to rejoin match ${this.id} but was not found in game state`);
       socket.emit('error', { message: 'Player not found in match' });
       socket.disconnect(true);
-      this.removeDisconnectedPlayerCallback(playerId);
-      throw new Error(`Player ${playerId} not found in match ${this.id}`);
+      this.removeDisconnectedPlayerCallback(playerMatchId);
+      throw new Error(`Player ${playerMatchId} not found in match ${this.id}`);
     }
     
     player.setDisconnected(false);
-    clearTimeout(timeoutId);
-    this.timeoutIds.delete(timeoutId);
-    this.sockets.set(playerId, socket);
-    this.removeDisconnectedPlayerCallback(playerId);
-    this.setUpPlayerSocketHandlers(playerId, socket);
+    
+    // Remove from disconnect cleanup map instead of clearing timeout
+    if (this.disconnectedPlayerCleanup.has(playerMatchId)) {
+      this.disconnectedPlayerCleanup.delete(playerMatchId);
+      logger.info(`Removed player ${playerMatchId} from disconnect cleanup queue`);
+    }
+    
+    this.sockets.set(playerMatchId, socket);
+    this.removeDisconnectedPlayerCallback(playerMatchId);
+    this.setUpPlayerSocketHandlers(playerMatchId, socket);
 
-    logger.info(`Player ${player.getName()} (${playerId}) rejoined match ${this.id}`);
+    logger.info(`Player ${player.getName()} (${playerMatchId}) rejoined match ${this.id}`);
   }
 
   public getIsReady(): boolean {
@@ -233,7 +239,7 @@ export class Match {
 
 
   public getNumberOfPlayers(): number {
-    return this.playerScores.size;
+    return this.worldState.players.size;
   }
 
   public getRegion(): Region {
@@ -268,8 +274,12 @@ export class Match {
 
   public informShowIsLive(): void { 
     logger.info(`Match ${this.id} is live! Informing players...`);
-    for (const socket of this.sockets.values()) {
-      socket.emit('showIsLive');
+    if (this.io) {
+      this.io.to(this.id).emit('showIsLive');
+    } else {
+      for (const socket of this.sockets.values()) {
+        socket.emit('showIsLive');
+      }
     }
   }
   
@@ -298,8 +308,41 @@ export class Match {
       }
   }
 
+  /**
+   * Process disconnected players and remove those who exceeded grace period
+   */
+  private processDisconnectedPlayerCleanup(): void {
+    const currentTime = Date.now();
+    const playersToRemove: string[] = [];
+
+    for (const [key, disconnectInfo] of this.disconnectedPlayerCleanup.entries()) {
+      const { playerId, socketId, disconnectTime } = disconnectInfo;
+      
+      // Check if grace period has elapsed
+      if (currentTime - disconnectTime > this.DISCONNECT_GRACE_PERIOD_MS) {
+        logger.info(`Grace period elapsed for player ${playerId} in match ${this.id}. Scheduling for removal...`);
+        playersToRemove.push(key);
+        
+        // Remove from game state
+        this.removePlayerFromGameState(playerId);
+        this.removeDisconnectedPlayerCallback(playerId);
+      }
+    }
+
+    // Clean up processed entries
+    for (const key of playersToRemove) {
+      this.disconnectedPlayerCleanup.delete(key);
+    }
+
+    // Log cleanup status for debugging
+    if (this.disconnectedPlayerCleanup.size > 0) {
+      logger.debug(`Disconnect cleanup check complete. ${this.disconnectedPlayerCleanup.size} players still in grace period for match ${this.id}`);
+    }
+
+  }
+
   public getPlayerIds(): string[] {
-    return Array.from(this.playerScores.keys());
+    return Array.from(this.worldState.players.keys());
   }
 
   public getShouldRemove(): boolean {
@@ -307,12 +350,14 @@ export class Match {
   }
 
   public cleanUpSession() {
-    
+    this.cleanupInterval && clearInterval(this.cleanupInterval);
+    this.cleanupInterval = null;
     // Clear all timeout IDs
     for (const id of this.timeoutIds) {
       clearTimeout(id);
     }
     
+    this.projectileUpdates.clear();
     // Explicitly clear match reset timeout
     if (this.matchResetTimeout) {
       clearTimeout(this.matchResetTimeout);
@@ -328,31 +373,27 @@ export class Match {
       player.destroy();
     }
 
-    for (const projectile of this.worldState.projectiles) {
-      projectile.destroy();
-    }
-
     // Clear all game state
     this.worldState.players.clear();
-    this.worldState.projectiles = [];
     this.timeoutIds.clear();
-    this.playerScores.clear();
     this.sockets.clear();
     this.respawnQueue.clear();
 
-
-
-
+    
 
     this.setDisconnectedPlayerCallback = () => {};
     this.removeDisconnectedPlayerCallback = () => {};
 
+    
     logger.info(`Match ${this.id} ended and cleaned up \n\n`);
   }
 
-  // TODO: Would this be faster if we make it promise based and use promise.all?
   private integratePlayerInputs(dt: number) {
     for (const player of this.worldState.players.values()) {
+      if (player.getIsDead()) {
+        continue;
+      }
+
       const max = 1;
       let numIntegrations = 0;
 
@@ -388,10 +429,17 @@ export class Match {
           if (!inputDebtVector) {
             // We have no input debt, so we can process the input normally.
             player.update(inputPayload.vector, dt, inputPayload.tick, 'B');
-          } else if (inputDebtVector.x === inputPayload.vector.x && inputDebtVector.y === inputPayload.vector.y) {
+          } else if (
+            inputDebtVector.x === inputPayload.vector.x 
+            && inputDebtVector.y === inputPayload.vector.y
+            && inputPayload.vector.mouse === undefined
+          ) {
             // If the input matches the last processed input, we've already processed it and can skip it.
             player.popInputDebt();
             skipped = true;
+            if (inputPayload.vector.mouse !== undefined) {
+              console.log('Skipping input payload with mouse data:', inputPayload.vector.mouse);
+            }
           } else {
             // We've overpredicted and this is an entierly new input.
             player.clearInputDebt();
@@ -428,7 +476,7 @@ export class Match {
   }
 
   private handlePing(socket: Socket, data: any): void {
-    socket.emit('m-pong', data);
+    socket.emit('m-pong', { serverTime: performance.now(), ...data });
   }
 
 
@@ -467,10 +515,12 @@ export class Match {
     socket.on('disconnect', (reason) => this.handlePlayerDisconnect(socket, playerId, reason));
     socket.on('m-ping', (data) => this.handlePing(socket, data));
     socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(playerId, inputPayload));
-    socket.on('projectileHit', (enemyId) => this.handleProjectileHit(playerId, enemyId));
+    socket.on('projectileHit', ({ enemyId, projectileId}) => this.handleProjectileHit(playerId, enemyId, projectileId));
+
+    this.broadcastFullStateNextLoop();
   }
 // Left off reviewing disconnect changes here. CHeck disconnect-notes.txt
-  private handleProjectileHit(playerId: string, enemyId: string): void {
+  private handleProjectileHit(playerId: string, enemyId: string, projectileId: string): void {
     const player = this.worldState.players.get(playerId);
     if (!player) {
       logger.error(`Player ${playerId} attempted to hit an enemy but was not found in match ${this.id}`);
@@ -486,8 +536,28 @@ export class Match {
     // first check if the projectile exists in the world state history
     // and that it belongs to the player
     // Handle projectile hit logic
-    this.handleCollision(playerId, enemy);
+    this.handleCollision(playerId, enemy, projectileId);
   }
+
+
+  private checkRateLimit(playerId: string): boolean {
+      const now = Date.now();
+      const record = this.worldState.playerInputCounts.get(playerId);
+      
+      if (!record || now - record.windowStart >= this.RATE_LIMIT_WINDOW_MS) {
+        // New window
+        this.worldState.playerInputCounts.set(playerId, { count: 1, windowStart: now });
+        return true;
+      }
+      
+      if (record.count >= this.MAX_INPUT_RATE) {
+        return false; // Rate limit exceeded
+      }
+      
+      record.count++;
+      return true;
+  }
+
 
   private handlePlayerInputPayload(playerId: string, playerInput: InputPayload): void {
     const player = this.worldState.players.get(playerId);
@@ -496,7 +566,16 @@ export class Match {
       return;
     }
 
+
+    if (this.checkRateLimit(playerId) === false) {
+      logger.warn(`Player ${player.getName()} (${playerId}) is sending inputs too quickly in match ${this.id}`);
+      return;
+    }
+
+
+
     player.queueInput(playerInput);
+
     if (player.afkRemoveTimer) {
       clearTimeout(player.afkRemoveTimer); // Clear any existing AFK timeout
       this.timeoutIds.delete(player.afkRemoveTimer); // Clear any existing AFK timeout
@@ -510,11 +589,7 @@ export class Match {
       return;
     }
     
-    const sortedScores = Array.from(this.playerScores.entries())
-      .map(([playerId, score]) => ({
-        playerId,
-        ...score
-      }))
+    const sortedScores = this.getAllPlayerScores()
       .sort((a, b) => b.kills - a.kills);
 
     const winner = sortedScores[0];
@@ -527,10 +602,6 @@ export class Match {
       logger.info(`Match ${this.id} ended. Winner: ${winnerName} (${winner.playerId}) with ${winner.kills} kills`);
       logger.info(`Final scores for match ${this.id}:`);
       
-      // Log all player scores
-      sortedScores.forEach((score, index) => {
-        logger.info(`  ${index + 1}. ${score.name} - Kills: ${score.kills}, Deaths: ${score.deaths}`);
-      });
 
       // Emit game over event with sorted scores
       this.matchIsActive = false;
@@ -542,23 +613,22 @@ export class Match {
 
       // Respawn any players in the respawn queue
 
-      for (const [playerId, playerName] of this.respawnQueue) {
-        const respawningPlayer = new Player(
-          playerId,
-          playerName,
-          this.STARTING_X,
-          this.STARTING_Y,
-          this.GAME_BOUNDS
-        );
-        respawningPlayer.setIsBystander(false);
-        respawningPlayer.setPlatforms(this.worldState.platforms);
-        this.worldState.players.set(playerId, respawningPlayer);
+      for (const playerId of this.respawnQueue) {
+        const player = this.worldState.players.get(playerId);
+        if (player) {
+          // Remove existing player instance before respawning
+          player.respawn(this.STARTING_X, this.STARTING_Y);
+        }
       }
-
     
-      for (const socket of this.sockets.values()) {
-        logger.info(`Emitting gameOver event to player socket ${socket.id} in match ${this.id}`);
-        socket.emit('gameOver', sortedScores);
+      if (this.io) {
+        logger.info(`Emitting gameOver event to room ${this.id} in match ${this.id}`);
+        this.io.to(this.id).emit('gameOver', sortedScores);
+      } else {
+        for (const socket of this.sockets.values()) {
+          logger.info(`Emitting gameOver event to player socket ${socket.id} in match ${this.id}`);
+          socket.emit('gameOver', sortedScores);
+        }
       }
 
       this.respawnQueue.clear();
@@ -574,30 +644,42 @@ export class Match {
     }
   }
 
+  public broadcastFullStateNextLoop() {
+    this.pendingFullStateBroadcast = true;
+  }
 
 
   // Extract state broadcast into its own method
-  public broadcastGameState(): void {
+  public broadcastGameState(): number | undefined {
     try {
-    
-      const projectileState = this.worldState.projectiles.filter((state) => state.shouldBeDestroyed === false)
-        .map((projectile) => projectile.getState());
 
-      const playerStates = this.getPlayerStates();
+      const projectileUpdates = Array.from(this.projectileUpdates).map(([id, update]) => update);
+      this.projectileUpdates.clear();
+
+      const playerStates = this.pendingFullStateBroadcast === false ? this.getPlayerBroadcastState() : this.getFullPlayerBroadcastStates();
+      this.pendingFullStateBroadcast = false;
 
       const gameState = {
-        serverTick: this.serverTick,
+        sTick: this.serverTick,
+        sTime: performance.now(),
         players: playerStates,
-        projectiles: projectileState,
-        scores: Array.from(this.playerScores.entries()).map(([playerId, score]) => ({
-          playerId,
-          ...score
-        }))
+        projectiles: projectileUpdates,
       };
 
-      for (const socket of this.sockets.values()) {
-        socket.emit('stateUpdate', gameState);
+      const stateString = JSON.stringify(gameState);
+      const sizeInBytes = Buffer.byteLength(stateString, 'utf8');
+
+      // Use room broadcasting if io instance is available, otherwise fallback to loop
+      if (this.io) {
+        this.io.to(this.id).emit('stateUpdate', gameState);
+      } else {
+        // Fallback to individual socket emissions
+        for (const socket of this.sockets.values()) {
+          socket.emit('stateUpdate', gameState);
+        }
       }
+
+      return sizeInBytes;
 
     } catch (error) {
       this.handleError(error as Error, 'broadcastState');
@@ -611,28 +693,6 @@ export class Match {
       // Process player updates with fixed delta
       this.integratePlayerInputs(dt);
   
-      // Process projectile updates
-      this.worldState.projectiles = this.worldState.projectiles.filter(
-        projectile => {
-          projectile.update();
-          
-        // Check expired projectiles
-          if (projectile.shouldBeDestroyed) {
-            logger.debug(`Projectile ${projectile.getId()} expired`);
-            return false;
-          }
-
-        
-          // Check for collisions only if match is active...
-          // This is currently disabled as we dont have 
-          // server side collision detection implemented yet.
-          if (this.matchIsActive) {
-            //this.checkProjectileCollisions(i, projectile, projectilesToRemove);
-          }
-
-          return true; // Keep projectile if not expired
-          
-        });
       // Check win condition
       this.checkWinCondition();
 
@@ -640,38 +700,6 @@ export class Match {
       this.handleError(error as Error, 'fixedUpdate');
     }
   }
-
-    // Extract collision check into its own method
-  private checkProjectileCollisions(index: number, projectile: Projectile, projectilesToRemove: number[]): boolean {
-    for (const player of this.worldState.players.values()) {
-      // Skip collision check if projectile belongs to player or player is bystander
-      if (projectile.getOwnerId() === player.getId() || player.getIsBystander()) continue;
-      
-      const projectileRect = {
-        x: projectile.getX() - PROJECTILE_WIDTH / 2,
-        y: projectile.getY() - PROJECTILE_HEIGHT / 2,
-        width: PROJECTILE_WIDTH,
-        height: PROJECTILE_HEIGHT,
-      };
-      
-      const playerRect = {
-        x: player.getX() - PLAYER_WIDTH / 2,
-        y: player.getY() - PLAYER_HEIGHT,
-        width: PLAYER_WIDTH,
-        height: PLAYER_HEIGHT,
-      };
-      
-      const collided = testForAABB(projectileRect, playerRect);
-      if (collided) {
-        projectilesToRemove.push(index);
-        //this.handleCollision(projectile, player);
-        return true; // Exit after collision
-      } 
-    }
-    return false;
-  }
-
-
 
 
   private handlePlayerDisconnect(socket: Socket, playerId: string, reason?: string): void {
@@ -688,17 +716,18 @@ export class Match {
       return;
     }
 
-    const timeout = setTimeout(() => {
-      this.removePlayerFromGameState(playerId, socketId)
-      this.timeoutIds.delete(timeout);
-    }, this.DISCONNECT_GRACE_PERIOD_MS);
+    // Add to disconnect cleanup map instead of using timeout
+    const disconnectTime = Date.now();
+    this.disconnectedPlayerCleanup.set(playerId, {
+      playerId,
+      socketId,
+      disconnectTime
+    });
 
-    this.timeoutIds.add(timeout);
-
-    this.setDisconnectedPlayerCallback(playerId, this.id, timeout);
+    this.setDisconnectedPlayerCallback(playerId, this.id, {} as NodeJS.Timeout); // Pass dummy timeout for now
     player.setDisconnected(true);
 
-    logger.info(`Player (UUID: ${playerId}) disconnected from match ${this.id}. Reason: ${reason}`);
+    logger.info(`Player (UUID: ${playerId}) disconnected from match ${this.id} at ${disconnectTime}. Reason: ${reason}. Grace period: ${this.DISCONNECT_GRACE_PERIOD_MS}ms`);
 
     // Remove socket from active sockets list but keep player in game state
     // (This is done as reconnecting players will get a new socket ID)
@@ -709,7 +738,7 @@ export class Match {
 
 
 
-  private removePlayerFromGameState(playerId: string, socketId: string): void {
+  private removePlayerFromGameState(playerId: string): void {
       // If the timeout executes, the player did not reconnect in time
       logger.info(`Player ${playerId} did not reconnect within grace period. Removing from match ${this.id}.`);
 
@@ -718,16 +747,18 @@ export class Match {
 
       const player = this.worldState.players.get(playerId);
       if (!player) {
-        logger.warn(`Player UUID ${playerId} not found in match ${this.id} during removal process`);
+        logger.warn(`Player UUID ${playerId} not found in match ${this.id} during removal process. Players remaining: ${this.worldState.players.size}`);
+        return; // Early return if player not found
       }
-      player?.destroy();
+      
+      logger.info(`Found player ${player.getName()} (${playerId}) in match ${this.id}. Proceeding with removal.`);
+      player.destroy();
 
       this.respawnQueue.delete(playerId);
       
-
       // Actually remove the player now
       this.worldState.players.delete(playerId);
-      this.playerScores.delete(playerId);
+      logger.info(`Removed player ${playerId} from worldState. Remaining players: ${this.worldState.players.size}`);
 
       // Clean up from our tracking map
       this.sockets.delete(playerId);
@@ -744,6 +775,7 @@ export class Match {
     player: Player, 
     inputPayload: InputPayload,
   ): void {
+      console.log("Handling player shooting");
       player.resetShooting(); // Reset shooting state after handling input
       if (!inputPayload.vector.mouse) return
 
@@ -753,15 +785,23 @@ export class Match {
         logger.warn(`Bystander ${player.getName()} (${player.getId()}) attempted to shoot in match ${this.id}`);
         return;
       }      
-      logger.debug(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
-      // TODO: What is the use of id going forward? Client generated projectile IDs can lead to collisions.
-      // consider server generated IDs.
-      // TODO: If were not handling collision server side, this should be removed.
-      const projectile = new Projectile(id, player.getId(), player.getX(), player.getY() - 50, x, y);
-      this.worldState.projectiles.push(projectile);
+      logger.info(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
+
+      const velocity = Projectile.calculateVelocity(player.getX(), player.getY() - 50, x, y);
+      const projectileUpdate = {
+        id,
+        ownerId: player.getId(),
+        x: player.getX(),
+        y: player.getY() - 50,
+        vx: velocity.vx,
+        vy: velocity.vy,
+      }
+
+      this.projectileUpdates.set(projectileUpdate.id, projectileUpdate);
+
   }
 
-  private handleCollision(shooterId: string, target: Player): void {
+  private handleCollision(shooterId: string, target: Player, projectileId: string): void {
       if (target.getIsBystander()) return; // Prevent damage to bystanders
       target.damage(10);
 
@@ -769,53 +809,52 @@ export class Match {
         this.handlePlayerDeath(target.getId(), target.getName(), shooterId);
         target.destroy();
       }
-      
+
+      if (this.projectileUpdates.has(projectileId)) {
+        const currentUpdate = this.projectileUpdates.get(projectileId);
+        if (currentUpdate) {
+          currentUpdate.dud = true;
+          this.projectileUpdates.set(projectileId, currentUpdate);
+        }
+      } else {
+        this.projectileUpdates.set(projectileId, { id: projectileId, dud: true });
+      }
   }
 
   private handlePlayerDeath(victimId: string, victimName: string, killerId: string) {
-      this.worldState.players.delete(victimId);
-      // Update death count for killed player
+      // Mark player as dead instead of removing them
+      const victim = this.worldState.players.get(victimId);
       const killer = this.worldState.players.get(killerId);
-      const killerName = killer ? killer.getName() : "Unknown Player";
-  
-
-      const killedPlayerScore = this.playerScores.get(victimId);
-
-      if (killedPlayerScore) {
-        killedPlayerScore.deaths++;
-        logger.info(`Player ${victimName} (${victimId}) was killed by ${killerName} (${killerId}) in match ${this.id}`);
+      
+      if (victim) {
+        victim.addDeath();
+        logger.info(`Player ${victimName} (${victimId}) was killed by ${killer?.getName() || "Unknown Player"} (${killerId}) in match ${this.id}`);
       } else {
-        logger.warn(`Failed to update deaths for player ${victimName} (${victimId}) - score not found`);
+        logger.warn(`Failed to update deaths for player ${victimName} (${victimId}) - player not found`);
       }
+      
       // Update kill count for shooter
-      const shooterScore = this.playerScores.get(killerId);
-      if (shooterScore) {
-        logger.info(`Player ${killerName} (${killerId}) now has ${shooterScore.kills + 1} kills in match ${this.id}`);
-        shooterScore.kills++;
+      if (killer) {
+        killer.addKill();
+        logger.info(`Player ${killer.getName()} (${killerId}) now has ${killer.getKills()} kills in match ${this.id}`);
         this.checkWinCondition();
       } else {
-          logger.error(`Failed to update kills for player ${killerName} (${killerId}) - score not found`);
+        logger.error(`Failed to update kills for player (${killerId}) - player not found`);
       }
 
-      this.scheulePlayerRespawn(victimId, victimName);
+      this.scheulePlayerRespawn(victimId);
   }
 
-  private scheulePlayerRespawn(playerId: string, playerName: string): void {
-      this.respawnQueue.set(playerId, playerName);
+  private scheulePlayerRespawn(playerId: string): void {
+      this.respawnQueue.add(playerId);
       const id = setTimeout(() => {
         const needsRespawn = this.respawnQueue.has(playerId);
         if (needsRespawn === false) return; // Player is not in respawn queue
         this.respawnQueue.delete(playerId);
-        const player = new Player(
-          playerId,
-          playerName,
-          this.STARTING_X, 
-          this.STARTING_Y, 
-          this.GAME_BOUNDS  
-        );
-        player.setIsBystander(false)
-        player.setPlatforms(this.worldState.platforms);
-        this.worldState.players.set(playerId, player);
+        const player = this.worldState.players.get(playerId);
+        if (player) {
+          player.respawn(this.STARTING_X, this.STARTING_Y);
+        }
         this.timeoutIds.delete(id);
       }, 3000);
 
@@ -829,33 +868,33 @@ export class Match {
       this.timeoutIds.delete(this.matchResetTimeout);
       this.matchResetTimeout = null;
     }
-    // Clear all active projectiles
-    this.worldState.projectiles.forEach(p => p.destroy());
-    this.worldState.projectiles = [];
-    
+
+
+    this.projectileUpdates.clear();
+
     // Reset player health and scores but maintain positions and bystander status
     for (const [playerId, player] of this.worldState.players.entries()) {
       player.resetHealth();
       // Keep x, y positions and isBystander state
       
-      // Reset scores for new round
-      this.playerScores.set(playerId, {
-        kills: 0,
-        deaths: 0,
-        name: player.getName()
-      });
+      // Reset scores for new round - now handled by Player class
+      player.resetScore();
+      
     }
+    console.log(`Player scores reset:`, this.getAllPlayerScores());
     logger.info(`Match ${this.id} reset complete with ${this.worldState.players.size} players`);
+    
+    // Force a full state broadcast to all clients immediately after reset
+    this.broadcastFullStateNextLoop();
+    logger.info(`Scheduled full state broadcast after match reset for match ${this.id}`);
+    
     // Inform players of match reset
-    for (const socket of this.sockets.values()) {
-      socket.emit('matchReset', {
-        players: this.getPlayerStates(),
-        scores: Array.from(this.playerScores.entries())
-          .map(([playerId, score]) => ({
-            playerId,
-            ...score
-          }))
-      });
+    if (this.io) {
+      this.io.to(this.id).emit('matchReset');
+    } else {
+      for (const socket of this.sockets.values()) {
+        socket.emit('matchReset');
+      }
     }
 
     this.matchIsActive = true;
@@ -867,27 +906,39 @@ export class Match {
     // Could add additional error handling logic here
   }
 
-  private getPlayerStates(): PlayerStateBroadcast[] {
+
+  private getFullPlayerBroadcastStates(): PlayerStateBroadcast[] {
     const states: PlayerStateBroadcast[] = [];
     for (const player of this.worldState.players.values()) {
+      const fullState = player.getFullBroadcastState();
+      states.push(fullState);
+    }
+    return states;
+  }
+
+
+  private getAllPlayerScores(): Array<{playerId: string, kills: number, deaths: number, name: string}> {
+    const scores: Array<{playerId: string, kills: number, deaths: number, name: string}> = [];
+    for (const player of this.worldState.players.values()) {
       const state = player.getLatestState();
-      if (state) {
-        // Add disconnected flag to player state
+      scores.push({
+        playerId: state.id,
+        kills: state.kills,
+        deaths: state.deaths,
+        name: state.name
+      });
+    }
+    return scores;
+  }
 
-
-        const broadcastState: PlayerStateBroadcast = {
-          id: state.id,
-          x: state.position.x,
-          y: state.position.y,
-          hp: state.hp,
-          by: state.isBystander,
-          name: state.name,
-          vx: state.velocity.x,
-          vy: state.velocity.y,
-          tick: state.tick,
-        };
-
-        states.push(broadcastState);
+  private getPlayerBroadcastState(): PlayerStateBroadcast[] {
+    const states: PlayerStateBroadcast[] = [];
+    for (const player of this.worldState.players.values()) {
+      // Use delta method to only send changed data
+      const deltaState = player.getLatestStateDelta();
+      states.push(deltaState);
+      if (deltaState.kills || deltaState.deaths) {
+        logger.debug(`Player ${player.getName()} (${player.getId()}) delta state includes kills/deaths: kills=${deltaState.kills}, deaths=${deltaState.deaths}`);
       }
     }
     return states;

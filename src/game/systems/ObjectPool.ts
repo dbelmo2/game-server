@@ -13,16 +13,19 @@ class ObjectPool<T> {
     #objectToIndex: Map<T, number> = new Map(); // Fast lookup for release operations
     #constructorFunction: () => T;
     #resetFunction: (obj: T) => T;
+    #destroyFunction: (obj: T) => void;
     #maxSize: number;
 
     constructor(
         constructorFunction: () => T,
         resetFunction: (obj: T) => T = (obj) => obj,
+        destroyFunction: (obj: T) => void = (obj) => {},
         initialSize: number = 10,
         maxSize: number = 1000
     ) {
         this.#constructorFunction = constructorFunction;
         this.#resetFunction = resetFunction;
+        this.#destroyFunction = destroyFunction;
         this.#maxSize = maxSize;
 
         // Initialize the pool with a set number of objects
@@ -41,8 +44,8 @@ class ObjectPool<T> {
         for (let i = 0; i < this.#poolArray.length; i++) {
             if (this.#poolArray[i].free) {
                 this.#poolArray[i].free = false;
-                // Reset the object's state before returning it
-                return this.#resetFunction(this.#poolArray[i].data);
+                // Return the object directly - it was already reset when released
+                return this.#poolArray[i].data;
             }
         }
 
@@ -51,6 +54,7 @@ class ObjectPool<T> {
             console.warn("Pool at maximum capacity, reusing oldest object");
             // Reuse the first object in the pool as a fallback
             this.#poolArray[0].free = false;
+            // Reset the reused object since it wasn't properly released
             return this.#resetFunction(this.#poolArray[0].data);
         }
 
@@ -61,8 +65,7 @@ class ObjectPool<T> {
             free: false
         });
         this.#objectToIndex.set(newObject, newIndex);
-        // Apply reset function to new object for consistency
-        return this.#resetFunction(newObject);
+        return newObject;
     }
 
     // Method to return an object to the pool
@@ -70,6 +73,7 @@ class ObjectPool<T> {
         const index = this.#objectToIndex.get(element);
         
         if (index !== undefined && index < this.#poolArray.length) {
+            this.#resetFunction(element);
             this.#poolArray[index].free = true;
             return;
         }
@@ -90,12 +94,20 @@ class ObjectPool<T> {
     // Optional: Method to clear and reset the entire pool
     clear(): void {
         for (let i = 0; i < this.#poolArray.length; i++) {
+            // Reset each object before marking it as free
+            this.#resetFunction(this.#poolArray[i].data);
             this.#poolArray[i].free = true;
         }
     }
 
+
     // Complete cleanup method for session end
     destroy(): void {
+        // Destroy all objects first
+        for (let item of this.#poolArray) {
+            this.#destroyFunction(item.data);
+        }
+        
         // Clear all references and empty the pool
         this.#poolArray.length = 0;
         this.#objectToIndex.clear();

@@ -30,7 +30,10 @@ const io = new SocketIOServer(server, {
     origin: config.CLIENT_URL || '*',
     methods: ['GET', 'POST']
   },
-  transports: ['websocket', 'polling'],
+  transports: ['websocket'],
+  perMessageDeflate: {
+    threshold: 1024 // Only compress messages larger than 1KB
+  },
   pingTimeout: 30000
 });
 
