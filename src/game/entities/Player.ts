@@ -113,10 +113,6 @@ export class Player {
     return this.lastProcessedInput;
   } 
 
-  public getNumTicksWithoutInput(): number {
-    return this.numTicksWithoutInput;
-  }
-
   public setIsDead(dead: boolean): void {
     this.isDead = dead;
   }
@@ -322,9 +318,6 @@ export class Player {
     this.hp = Math.max(0, this.hp - amount);
   }
   
-  public heal(amount: number): void {
-    this.hp = Math.min(100, this.hp + amount);
-  }
   
   public resetHealth(): void {
     this.hp = 100;
@@ -395,7 +388,6 @@ export class Player {
   public getName(): string {
     return this.name;
   }
-
 
   public isAfk(vector: InputVector): boolean {
     if (vector.x === 0 && vector.y === 0 && this.isOnSurface) {
@@ -488,10 +480,6 @@ export class Player {
     return delta;
   }
 
-
-  public getInputQueueLength(): number {
-    return this.inputQueue.length;
-  }
 
   public dequeueInput(): InputPayload | undefined {
     if (this.inputQueue.length === 0) {
