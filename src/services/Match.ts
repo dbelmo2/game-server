@@ -53,32 +53,8 @@ const MAX_KILL_AMOUNT = 4; // Adjust this value as needed
 
 
 // CRITICAL BUG:
-// Fix bug where enemy projectiles sometimes do not spawn. their damage is applied if they hit, but 
-// no sprite spawns. this can be recreated by jumping in the air, and shooting downward when you land on the platform.
-// 
-// 2. there is a mismatch between client damage applied and server damage. the client often applies more damage
-// both to enemies and the self. this is then undone the by the server stateUpdate
-// 
-//  additional notes: After reverting the previous fix to the health bar flicker bug, we can see that 
-//  There is a bug occuring with the predicted health of the self player where it seems that the prediceted health goes down more than it should causing a damage mismatch
-//  logging collisions and the predicted health right before from both the shooter and victims perspective shows the victimes console
-//  will randomly have a bit lower of predicted health right before a shot. 
 
-// root cause for health mismatch issue (client is over predicting damage done to them by other players.):: 
-// it seems that the setHealth with the updated health is being from the 
-// server is occuring from UpdatePlayerHealth, before the clientside prediction is 
-// able to occur for that same bullet. i think this is causing the mismatch. 
-// By the time that the client has simulated the enemy bullet which will hit them, 
-// it has already applied the updated (lower) health that the server is sending it. 
-// it then tries to apply the bullet damage but this is incorrect as the bullet damage 
-// was teken into account in the server in the updated health it sent it...
-// One prob not great idea to solve this is to mark projectiles as already having applied their damage on server side 
-// so clients know not to apply damage for those projectiles when they simulate them.
-//
-
-// Other bugs found are
 // 2. Score display not centered when dev tools open
-// 3. tomato png appearing behind grass
 // 4. daily metrics in db?
 // 5. if a player disconnects right as they respawn, they remain suspended in the air for other players
 // -----------
@@ -461,10 +437,19 @@ export class Match {
           if (!inputDebtVector) {
             // We have no input debt, so we can process the input normally.
             player.update(inputPayload.vector, dt, inputPayload.tick, 'B');
-          } else if (inputDebtVector.x === inputPayload.vector.x && inputDebtVector.y === inputPayload.vector.y) {
+          } else if (
+            // TODO: Adding this mouse check fixed issue with projectiles not spawning for enemies becauese theyre skipped here
+            // investigate further later for effects on gameplay and player movement. 
+            inputDebtVector.x === inputPayload.vector.x 
+            && inputDebtVector.y === inputPayload.vector.y
+            && inputPayload.vector.mouse === undefined
+          ) {
             // If the input matches the last processed input, we've already processed it and can skip it.
             player.popInputDebt();
             skipped = true;
+            if (inputPayload.vector.mouse !== undefined) {
+              console.log('Skipping input payload with mouse data:', inputPayload.vector.mouse);
+            }
           } else {
             // We've overpredicted and this is an entierly new input.
             player.clearInputDebt();
@@ -597,7 +582,10 @@ export class Match {
       return;
     }
 
+
+
     player.queueInput(playerInput);
+
     if (player.afkRemoveTimer) {
       clearTimeout(player.afkRemoveTimer); // Clear any existing AFK timeout
       this.timeoutIds.delete(player.afkRemoveTimer); // Clear any existing AFK timeout
@@ -679,10 +667,6 @@ export class Match {
       this.projectileUpdates.clear();
 
       const playerStates = this.pendingFullStateBroadcast === false ? this.getPlayerBroadcastState() : this.getFullPlayerBroadcastStates();
-        if (this.pendingFullStateBroadcast) {
-        logger.info(`Broadcasting full game state for match ${this.id} as requested by MatchMaker`);
-        console.log(playerStates)
-      }
       this.pendingFullStateBroadcast = false;
 
       const gameState = {
@@ -801,6 +785,7 @@ export class Match {
     player: Player, 
     inputPayload: InputPayload,
   ): void {
+      console.log("Handling player shooting");
       player.resetShooting(); // Reset shooting state after handling input
       if (!inputPayload.vector.mouse) return
 
@@ -810,7 +795,7 @@ export class Match {
         logger.warn(`Bystander ${player.getName()} (${player.getId()}) attempted to shoot in match ${this.id}`);
         return;
       }      
-      logger.debug(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
+      logger.info(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
 
       const velocity = Projectile.calculateVelocity(player.getX(), player.getY() - 50, x, y);
       const projectileUpdate = {
