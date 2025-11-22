@@ -398,7 +398,7 @@ export class Match {
   // TODO: Would this be faster if we make it promise based and use promise.all?
   private integratePlayerInputs(dt: number) {
     for (const player of this.worldState.players.values()) {
-      if (player.getIsDead() || player.getIsDisconnected()) {
+      if (player.getIsDead()) {
         continue;
       }
 
