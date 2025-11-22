@@ -1,5 +1,5 @@
 import { Socket } from 'socket.io';
-import { Projectile } from '../game/entities/Projectile';
+import { Projectile, ProjectileStateUpdate } from '../game/entities/Projectile';
 import logger from '../utils/logger';
 import { 
   testForAABB,
@@ -39,7 +39,6 @@ export type PlayerScore = {
 
 export type WorldState = {
     players: Map<string, Player>;
-    projectiles: Set<Projectile>;
     platforms: Platform[];
     playerInputCounts: Map<string, { count: number; windowStart: number }>;
 };
@@ -49,12 +48,13 @@ export type InputPayload = {
   vector: InputVector;
 }
 
+
 const MAX_KILL_AMOUNT = 4; // Adjust this value as needed
 
 
 // CRITICAL BUG:
-// 1. when the player is moving and shooting, the aiming is off. if they click directly above their headm
-// the bullet is shot up but angled towards the direction theyre moving from. This might not be a bug(?) but rather a style choice?
+// Fix bug where enemy projectiles sometimes do not spawn. their damage is applied if they hit, but 
+// no sprite spawns. this can be recreated by jumping in the air, and shooting downward when you land on the platform.
 // 
 // 2. there is a mismatch between client damage applied and server damage. the client often applies more damage
 // both to enemies and the self. this is then undone the by the server stateUpdate
@@ -145,24 +145,17 @@ export class Match {
 
   private worldState: WorldState = {
     players: new Map(),
-    projectiles: new Set(),
     platforms: [],
     playerInputCounts: new Map<string, { count: number; windowStart: number }>(),
   };
 
-  private projectilePool: ObjectPool<Projectile> = new ObjectPool<Projectile>(
-    () => new Projectile('', '', 0, 0, 0, 0),
-    (projectile) => projectile.reset(),
-    (projectile) => projectile.destroy(),
-    100,
-    1000
-  );
 
   private id: string;
   private region: Region;
   private timeoutIds: Set<NodeJS.Timeout> = new Set();
   private sockets: Map<string, Socket> = new Map(); // TODO: Does this grow indefinitely? transform to map?
   private respawnQueue: Set<string> = new Set();
+  private projectileUpdates: Map<string, ProjectileStateUpdate> = new Map();
   private disconnectedPlayerCleanup: Map<string, { playerId: string, socketId: string, disconnectTime: number }> = new Map();
   private cleanupInterval: NodeJS.Timeout | null = null;
   private matchIsActive = false;
@@ -395,6 +388,7 @@ export class Match {
       clearTimeout(id);
     }
     
+    this.projectileUpdates.clear();
     // Explicitly clear match reset timeout
     if (this.matchResetTimeout) {
       clearTimeout(this.matchResetTimeout);
@@ -410,12 +404,8 @@ export class Match {
       player.destroy();
     }
 
-
-    this.projectilePool.destroy();
-
     // Clear all game state
     this.worldState.players.clear();
-    this.worldState.projectiles.clear();
     this.timeoutIds.clear();
     this.sockets.clear();
     this.respawnQueue.clear();
@@ -550,12 +540,12 @@ export class Match {
     socket.on('disconnect', (reason) => this.handlePlayerDisconnect(socket, playerId, reason));
     socket.on('m-ping', (data) => this.handlePing(socket, data));
     socket.on('playerInput', (inputPayload: InputPayload) => this.handlePlayerInputPayload(playerId, inputPayload));
-    socket.on('projectileHit', (enemyId) => this.handleProjectileHit(playerId, enemyId));
+    socket.on('projectileHit', ({ enemyId, projectileId}) => this.handleProjectileHit(playerId, enemyId, projectileId));
 
     this.broadcastFullStateNextLoop();
   }
 // Left off reviewing disconnect changes here. CHeck disconnect-notes.txt
-  private handleProjectileHit(playerId: string, enemyId: string): void {
+  private handleProjectileHit(playerId: string, enemyId: string, projectileId: string): void {
     const player = this.worldState.players.get(playerId);
     if (!player) {
       logger.error(`Player ${playerId} attempted to hit an enemy but was not found in match ${this.id}`);
@@ -571,7 +561,7 @@ export class Match {
     // first check if the projectile exists in the world state history
     // and that it belongs to the player
     // Handle projectile hit logic
-    this.handleCollision(playerId, enemy);
+    this.handleCollision(playerId, enemy, projectileId);
   }
 
 
@@ -685,13 +675,8 @@ export class Match {
   public broadcastGameState(): number | undefined {
     try {
 
-      const projectileState = Array.from(this.worldState.projectiles.values())
-        .filter((state) => state.shouldBeDestroyed === false)
-        .map((projectile) => projectile.getState());
-
-
-
-
+      const projectileUpdates = Array.from(this.projectileUpdates).map(([id, update]) => update);
+      this.projectileUpdates.clear();
 
       const playerStates = this.pendingFullStateBroadcast === false ? this.getPlayerBroadcastState() : this.getFullPlayerBroadcastStates();
         if (this.pendingFullStateBroadcast) {
@@ -704,10 +689,9 @@ export class Match {
         sTick: this.serverTick,
         sTime: performance.now(),
         players: playerStates,
-        projectiles: projectileState,
+        projectiles: projectileUpdates,
       };
 
-          
       const stateString = JSON.stringify(gameState);
       const sizeInBytes = Buffer.byteLength(stateString, 'utf8');
 
@@ -735,29 +719,6 @@ export class Match {
       // Process player updates with fixed delta
       this.integratePlayerInputs(dt);
   
-      // Process projectile updates
-
-      const projectilesToRemove: Projectile[] = [];
-      Array.from(this.worldState.projectiles).forEach((projectile, i) => { 
-        projectile.update();
-
-        if (projectile.shouldBeDestroyed) {
-          projectilesToRemove.push(projectile);
-        }
-                
-          // Check for collisions only if match is active...
-          // This is currently disabled as we dont have 
-          // server side collision detection implemented yet.
-          if (this.matchIsActive) {
-            //this.checkProjectileCollisions(i, projectile, projectilesToRemove);
-          }
-
-      });
-      projectilesToRemove.forEach((projectile) => {
-        this.projectilePool.releaseElement(projectile);
-        this.worldState.projectiles.delete(projectile);
-      });
-
       // Check win condition
       this.checkWinCondition();
 
@@ -765,38 +726,6 @@ export class Match {
       this.handleError(error as Error, 'fixedUpdate');
     }
   }
-
-    // Extract collision check into its own method
-  private checkProjectileCollisions(index: number, projectile: Projectile, projectilesToRemove: number[]): boolean {
-    for (const player of this.worldState.players.values()) {
-      // Skip collision check if projectile belongs to player or player is bystander
-      if (projectile.getOwnerId() === player.getId() || player.getIsBystander()) continue;
-      
-      const projectileRect = {
-        x: projectile.getX() - PROJECTILE_WIDTH / 2,
-        y: projectile.getY() - PROJECTILE_HEIGHT / 2,
-        width: PROJECTILE_WIDTH,
-        height: PROJECTILE_HEIGHT,
-      };
-      
-      const playerRect = {
-        x: player.getX() - PLAYER_WIDTH / 2,
-        y: player.getY() - PLAYER_HEIGHT,
-        width: PLAYER_WIDTH,
-        height: PLAYER_HEIGHT,
-      };
-      
-      const collided = testForAABB(projectileRect, playerRect);
-      if (collided) {
-        projectilesToRemove.push(index);
-        //this.handleCollision(projectile, player);
-        return true; // Exit after collision
-      } 
-    }
-    return false;
-  }
-
-
 
 
   private handlePlayerDisconnect(socket: Socket, playerId: string, reason?: string): void {
@@ -882,16 +811,22 @@ export class Match {
         return;
       }      
       logger.debug(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
-      // TODO: What is the use of id going forward? Client generated projectile IDs can lead to collisions.
-      // consider server generated IDs.
-      // TODO: If were not handling collision server side, this should be removed.
-      const projectile = this.projectilePool.getElement();
-      projectile.initialize(id, player.getId(), player.getX(), player.getY() - 50, x, y);
 
-      this.worldState.projectiles.add(projectile);
+      const velocity = Projectile.calculateVelocity(player.getX(), player.getY() - 50, x, y);
+      const projectileUpdate = {
+        id,
+        ownerId: player.getId(),
+        x: player.getX(),
+        y: player.getY() - 50,
+        vx: velocity.vx,
+        vy: velocity.vy,
+      }
+
+      this.projectileUpdates.set(projectileUpdate.id, projectileUpdate);
+
   }
 
-  private handleCollision(shooterId: string, target: Player): void {
+  private handleCollision(shooterId: string, target: Player, projectileId: string): void {
       if (target.getIsBystander()) return; // Prevent damage to bystanders
       target.damage(10);
 
@@ -899,7 +834,16 @@ export class Match {
         this.handlePlayerDeath(target.getId(), target.getName(), shooterId);
         target.destroy();
       }
-      
+
+      if (this.projectileUpdates.has(projectileId)) {
+        const currentUpdate = this.projectileUpdates.get(projectileId);
+        if (currentUpdate) {
+          currentUpdate.dud = true;
+          this.projectileUpdates.set(projectileId, currentUpdate);
+        }
+      } else {
+        this.projectileUpdates.set(projectileId, { id: projectileId, dud: true });
+      }
   }
 
   private handlePlayerDeath(victimId: string, victimName: string, killerId: string) {
@@ -950,8 +894,8 @@ export class Match {
       this.matchResetTimeout = null;
     }
 
-    this.projectilePool.clear();
-    this.worldState.projectiles.clear();
+
+    this.projectileUpdates.clear();
 
     // Reset player health and scores but maintain positions and bystander status
     for (const [playerId, player] of this.worldState.players.entries()) {
