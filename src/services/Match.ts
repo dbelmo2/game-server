@@ -85,14 +85,8 @@ broadcasting gamesate with laasdt player input tick: 1931
 In these example logs, for the client, the jump occured at y = 1080, but at 1927, y was 1067.9166666666667
 matching the server position.
 
-
-
-
-
 */
 
-// TODO: Critical bug.. state update for a player joining the match is incomplete. if an enemy
-// become non bystander before a player joins, they will be shown as a bystander to any players that join after.
 export class Match {
   private readonly GAME_WIDTH = 1920;  // Fixed game width
   private readonly GAME_HEIGHT = 1080; // Fixed game height
@@ -164,7 +158,6 @@ export class Match {
     // Start periodic cleanup for disconnected players (every 3 seconds)
     this.cleanupInterval = setInterval(() => {
       // TODO: Check why this prints 3 times 
-      //console.log('Running disconnected player cleanup process...');
       this.processDisconnectedPlayerCleanup();
     }, 3000);
   }
@@ -395,7 +388,6 @@ export class Match {
     logger.info(`Match ${this.id} ended and cleaned up \n\n`);
   }
 
-  // TODO: Would this be faster if we make it promise based and use promise.all?
   private integratePlayerInputs(dt: number) {
     for (const player of this.worldState.players.values()) {
       if (player.getIsDead()) {
@@ -438,8 +430,6 @@ export class Match {
             // We have no input debt, so we can process the input normally.
             player.update(inputPayload.vector, dt, inputPayload.tick, 'B');
           } else if (
-            // TODO: Adding this mouse check fixed issue with projectiles not spawning for enemies becauese theyre skipped here
-            // investigate further later for effects on gameplay and player movement. 
             inputDebtVector.x === inputPayload.vector.x 
             && inputDebtVector.y === inputPayload.vector.y
             && inputPayload.vector.mouse === undefined
