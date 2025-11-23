@@ -150,7 +150,6 @@ export class Player {
   private indexPostJump = 0
 
   update(inputVector: InputVector, dt: number, localTick: number, scenario: string): void {
-      //console.log(`player position: ${this.x}, ${this.y}`);
       // 1. First we update our velocity vector based on input and physics.
       // Horizontal Movement
       if (inputVector.x !== 0) {
@@ -270,7 +269,6 @@ export class Player {
           playerBounds.left < platformBounds.right;
         
 
-        //console.log(`Player bottom ${playerBounds.bottom} Platform top ${platformBounds.top}, Velocity Y ${this.velocity.y}`);
         // Check if we're falling, were above platform last frame, and are horizontally aligned
           
         // Check if we're falling, were above platform last frame, and are horizontally aligned

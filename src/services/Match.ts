@@ -441,9 +441,7 @@ export class Match {
             // If the input matches the last processed input, we've already processed it and can skip it.
             player.popInputDebt();
             skipped = true;
-            if (inputPayload.vector.mouse !== undefined) {
-              console.log('Skipping input payload with mouse data:', inputPayload.vector.mouse);
-            }
+
           } else {
             // We've overpredicted and this is an entierly new input.
             player.clearInputDebt();
@@ -779,7 +777,6 @@ export class Match {
     player: Player, 
     inputPayload: InputPayload,
   ): void {
-      console.log("Handling player shooting");
       player.resetShooting(); // Reset shooting state after handling input
       if (!inputPayload.vector.mouse) return
 
@@ -885,7 +882,6 @@ export class Match {
       player.resetScore();
       
     }
-    console.log(`Player scores reset:`, this.getAllPlayerScores());
     logger.info(`Match ${this.id} reset complete with ${this.worldState.players.size} players`);
     
     // Force a full state broadcast to all clients immediately after reset

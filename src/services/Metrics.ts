@@ -374,10 +374,9 @@ export class MetricsManager {
     logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     logger.info('📊 SERVER METRICS');
     logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
+  
     logger.info(`🎮 Server Health:`);
-    logger.info(`   Matches: ${this.metrics.totalMatches} | Players: ${this.metrics.totalPlayers}`);
-    
+    logger.info(`  Total Players: ${this.metrics.totalPlayers} | Matches: ${this.metrics.totalMatches} | Players: ${this.metrics.totalPlayers}`);
     logger.info(`⚡ Performance:`);
     logger.info(`   Loop Time: avg=${this.metrics.avgLoopTimeMs.toFixed(2)}ms max=${this.metrics.maxLoopTimeMs.toFixed(2)}ms`);
     logger.info(`   Loop Rate: ${this.metrics.loopsPerSecond.toFixed(1)}/sec (target: ${this.thresholds.targetLoopsPerSecond}/sec)`);
