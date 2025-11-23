@@ -1,36 +1,54 @@
+export interface PositionVector {
+  x: number;
+  y: number;
+}
+
+export interface InputVector {
+  x: number;
+  y: number;
+  mouse?: { x: number; y: number; id: string };
+}
+
 export class Vector2 {
 
-
-  public x: number;
-  public y: number;
-  public mouse?: { x: number; y: number, id: string };
-
-
-  constructor(x = 0, y = 0, mouse?: { x: number; y: number, id: string }) {
-    this.x = x;
-    this.y = y;
-    this.mouse = mouse;
+  private constructor() {}
+  // ---------- Static utility methods for plain objects ----------
+  static addPositions(a: PositionVector, b: PositionVector): PositionVector {
+    return { x: a.x + b.x, y: a.y + b.y };
   }
 
-  // ---------- mutating instance methods ----------
-  add(v: Vector2): this      { this.x += v.x; this.y += v.y; return this; }
-  subtract(v: Vector2): this { this.x -= v.x; this.y -= v.y; return this; }
-  scale(s: number): this     { this.x *= s;   this.y *= s;   return this; }
-
-  lenSq(): number { return this.x * this.x + this.y * this.y; }
-  len():   number { return Math.sqrt(this.lenSq()); }
-
-  normalize(): this {
-    const l = this.len();
-    if (l > 1e-8) { this.x /= l; this.y /= l; }
-    return this;
+  static subtractPositions(a: PositionVector, b: PositionVector): PositionVector {
+    return { x: a.x - b.x, y: a.y - b.y };
   }
 
-  // ---------- non‑mutating helpers ----------
-  static add(a: Vector2, b: Vector2): Vector2       { return a.clone().add(b); }
-  static subtract(a: Vector2, b: Vector2): Vector2  { return a.clone().subtract(b); }
-  static dot(a: Vector2, b: Vector2): number        { return a.x * b.x + a.y * b.y; }
+  static scalePosition(pos: PositionVector, scale: number): PositionVector {
+    return { x: pos.x * scale, y: pos.y * scale };
+  }
 
-  clone(): Vector2      { return new Vector2(this.x, this.y); }
-  equals(v: Vector2): boolean { return this.x === v.x && this.y === v.y; }
+  static dot(a: PositionVector, b: PositionVector): number {
+    return a.x * b.x + a.y * b.y;
+  }
+
+  static lenSq(x: number, y: number): number {
+    return x * x + y * y;
+  }
+
+  static len(x: number, y: number): number {
+    return Math.sqrt(Vector2.lenSq(x, y));
+  }
+
+  static normalize(pos: PositionVector): PositionVector {
+    const length = Vector2.len(pos.x, pos.y);
+    if (length > 1e-8) {
+      return { x: pos.x / length, y: pos.y / length };
+    }
+    return { x: 0, y: 0 };
+  }
+
+  static equals(a: PositionVector, b: PositionVector): boolean {
+    return a.x === b.x && a.y === b.y;
+  }
+
+
+
 }

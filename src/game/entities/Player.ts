@@ -1,20 +1,48 @@
 import logger from '../../utils/logger';
 import { Platform } from './Platform';
 import { InputPayload } from '../../services/Match';
-import { Vector2 } from '../systems/Vector';
-
+import { InputVector, PositionVector } from '../systems/Vector';
 export interface PlayerState {
   id: string;
-  position: Vector2;
+  position: PositionVector;
   hp: number;
   isBystander: boolean;
   name: string;
-  velocity: Vector2;
+  velocity: PositionVector;
   isOnGround?: boolean;
   tick: number; 
-  vx: number; // Horizontal velocity
-  vy: number; // Vertical velocity
+  isDisconnected: boolean;
+  isDead: boolean;
+  kills: number;
+  deaths: number;
 }
+
+export interface PlayerStateBroadcast {
+    id: string,
+    x: number,
+    y: number,
+    hp?: number,
+    by?: boolean,
+    name?: string,
+    vx: number,
+    tick: number,
+    vy: number,
+    isDead?: boolean,
+    kills?: number,
+    deaths?: number,
+}
+
+export interface PlayerStateBroadcastUpdate {
+  id: string;
+  tick: number; 
+  position?: PositionVector;
+  hp?: number;
+  isBystander?: boolean;
+  name?: string;
+  velocity?: PositionVector;
+  [key: string]: any;
+}
+
 export class Player {
   public readonly SPEED = 750;
   public readonly JUMP_STRENGTH = 750;
@@ -24,7 +52,7 @@ export class Player {
   private hp: number = 100;
   private x: number;
   private y: number;
-  private velocity: Vector2 = new Vector2(0, 0);
+  private velocity: PositionVector = { x: 0, y: 0 };
   private isBystander: boolean = true;
   private name: string;
   private isOnGround: boolean = false;
@@ -35,25 +63,30 @@ export class Player {
   private lastProcessedInput: InputPayload | null = null;
   private gameBounds: { left: number; right: number; top: number; bottom: number } | null = null;
   private numTicksWithoutInput: number = 0;
-  private InputDebt: Vector2[] = [];
+  private InputDebt: InputVector[] = [];
   private lastKnownState: PlayerState | null = null;
+  private lastBroadcastState: PlayerState | null = null;
   private isShooting = false; // Track if the player is shooting
   private lastInputTimestamp: number = Date.now(); // Timestamp of the last input
   public afkRemoveTimer: NodeJS.Timeout | undefined; // Timer for AFK removal
+  private isDisconnected: boolean = false; // Track if player is temporarily disconnected
+  private isDead: boolean = false; // Track if player is dead
+  private kills: number = 0; // Track player's kill count
+  private deaths: number = 0; // Track player's death count
   
 
   // Physics constants
   constructor(
-    id: string, 
+    id: string,
+    name: string,
     x: number, 
     y: number, 
-    name: string, 
     gameBounds: { left: number; right: number; top: number; bottom: number } | null = null
   ) {
     this.id = id;
+    this.name = name;
     this.x = x;
     this.y = y;
-    this.name = name;
     this.gameBounds = gameBounds;
   }
 
@@ -80,16 +113,43 @@ export class Player {
     return this.lastProcessedInput;
   } 
 
-  public getNumTicksWithoutInput(): number {
-    return this.numTicksWithoutInput;
+  public setIsDead(dead: boolean): void {
+    this.isDead = dead;
+  }
+
+  public getIsDead(): boolean {
+    return this.isDead;
+  }
+
+  public addKill(): void {
+    this.kills++;
+  }
+
+  public addDeath(): void {
+    this.deaths++;
+    this.setIsDead(true);
+    this.inputQueue = []; // Clear input queue on death
+    this.clearInputDebt();
+  }
+
+  public resetScore(): void {
+    this.kills = 0;
+    this.deaths = 0;
+  }
+
+  public getKills(): number {
+    return this.kills;
+  }
+
+  public getDeaths(): number {
+    return this.deaths;
   }
 
 
   private isJumping = false;
   private indexPostJump = 0
 
-  update(inputVector: Vector2, dt: number, localTick: number, scenario: string): void {
-      //console.log(`player position: ${this.x}, ${this.y}`);
+  update(inputVector: InputVector, dt: number, localTick: number, scenario: string): void {
       // 1. First we update our velocity vector based on input and physics.
       // Horizontal Movement
       if (inputVector.x !== 0) {
@@ -107,11 +167,9 @@ export class Player {
         logger.debug(`Player ${this.name} is shooting at mouse coordinates: ${JSON.stringify(inputVector.mouse)}. Local tick: ${localTick}`);
       }
 
-      // Jumping
-      if ((inputVector.y < 0 && this.isOnSurface) || (inputVector.y < 0 && this.canDoubleJump)) {
-        logger.debug(`Player ${this.name} is jumping... Current coordinates: ${this.x}, ${this.y}. Input vector: ${JSON.stringify(inputVector)}. Local tick: ${localTick}`);
-        this.jump(inputVector);
-      } 
+      if (inputVector.y < 0) {
+          this.jump(inputVector);
+      }
 
       // Gravity
       this.applyGravity(dt);
@@ -128,12 +186,10 @@ export class Player {
 
       if (this.y === this.gameBounds?.bottom) {
           this.isOnGround = true;
-          this.isOnSurface = true; // Player is on the ground
-          this.canDoubleJump = true; // Reset double jump when on ground
-          this.velocity.y = 0; // Reset vertical velocity when on ground
-          this.isJumping = false; // Reset jumping state
-          this.indexPostJump = 0; // Reset post-jump index
-      }
+          this.resetJumpState();
+      } else {
+          this.isOnGround = false; 
+        }
 
       if (this.isJumping && inputVector.y === 0) {
         this.indexPostJump++;
@@ -144,14 +200,25 @@ export class Player {
       const { isOnPlatform, platformTop } = this.checkPlatformCollisions();            
       if (isOnPlatform && platformTop !== null) {
           this.y = platformTop;
-          this.velocity.y = 0;
-          this.isOnSurface = true;
+          this.resetJumpState();
+          
       }
 
-      
-      this.updateLatestState(localTick);          
 
+      this.isOnSurface = isOnPlatform || this.isOnGround; // Update surface state based on platform collision
+
+
+      this.updateLatestState(localTick);
   }
+
+  private resetJumpState(): void {
+      this.canDoubleJump = true;
+      this.velocity.y = 0;
+      this.isJumping = false;
+      this.indexPostJump = 0;
+      this.isOnSurface = true;
+  }
+
 
 
   private applyGravity(dt: number): void {
@@ -159,12 +226,18 @@ export class Player {
       this.velocity.y = Math.min(this.velocity.y, this.MAX_FALL_SPEED); 
   }
 
-  private jump(inputVector: Vector2): void {
-      this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
-      this.canDoubleJump = this.isOnSurface;
-      this.isOnGround = false;
-      this.isOnSurface = false; // Player is no longer on the ground
-      this.isJumping = true; // Set jumping state
+  private jump(inputVector: InputVector): void {
+    if (this.isOnSurface) {
+        // First jump from ground/platform
+        this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
+        this.canDoubleJump = true; // Enable double jump
+        this.isOnSurface = false;
+        this.isJumping = true;
+    } else if (this.canDoubleJump) {
+        // Double jump in air
+        this.velocity.y = inputVector.y * this.JUMP_STRENGTH;
+        this.canDoubleJump = false; // Disable further jumping
+    }
   }
 
   private getClampedPosition(newX: number, newY: number): { clampedX: number; clampedY: number } {
@@ -196,7 +269,6 @@ export class Player {
           playerBounds.left < platformBounds.right;
         
 
-        //console.log(`Player bottom ${playerBounds.bottom} Platform top ${platformBounds.top}, Velocity Y ${this.velocity.y}`);
         // Check if we're falling, were above platform last frame, and are horizontally aligned
           
         // Check if we're falling, were above platform last frame, and are horizontally aligned
@@ -212,12 +284,12 @@ export class Player {
     this.isBystander = value;
   }
 
-  
-  public addInputDebt(inputVector: Vector2): void {
+
+  public addInputDebt(inputVector: InputVector): void {
     this.InputDebt.push(inputVector);
   } 
 
-  public peekInputDebt(): Vector2 | undefined {
+  public peekInputDebt(): InputVector | undefined {
     if (this.InputDebt.length === 0) {
       return undefined;
     }
@@ -228,7 +300,7 @@ export class Player {
     this.InputDebt = [];
   }
 
-  public popInputDebt(): Vector2 | undefined {
+  public popInputDebt(): InputVector | undefined {
     if (this.InputDebt.length === 0) {
       return undefined;
     }
@@ -244,14 +316,39 @@ export class Player {
     this.hp = Math.max(0, this.hp - amount);
   }
   
-  public heal(amount: number): void {
-    this.hp = Math.min(100, this.hp + amount);
-  }
   
   public resetHealth(): void {
     this.hp = 100;
   }
 
+  public respawn(x: number, y: number): void {
+    this.setIsDead(false);
+    this.resetHealth();
+    this.x = x;
+    this.y = y;
+    this.velocity = { x: 0, y: 0 };
+    this.isOnGround = false;
+    this.canDoubleJump = true;
+  }
+
+
+  public getFullBroadcastState(): PlayerStateBroadcast {
+    const broadcastState: PlayerStateBroadcast = {
+      id: this.id,
+      x: this.x,
+      y: this.y,
+      vx: this.velocity.x,
+      vy: this.velocity.y,
+      tick: this.lastProcessedInput?.tick || 0,
+      hp: this.hp,
+      by: this.isBystander,
+      name: this.name,
+      isDead: this.isDead,
+      kills: this.kills,
+      deaths: this.deaths
+    };
+    return broadcastState;
+  }
 
   public getPlayerBounds(): { top: number; bottom: number; left: number; right: number; width: number; height: number } {
     const width = 50;
@@ -290,8 +387,7 @@ export class Player {
     return this.name;
   }
 
-
-  public isAfk(vector: Vector2): boolean {
+  public isAfk(vector: InputVector): boolean {
     if (vector.x === 0 && vector.y === 0 && this.isOnSurface) {
       return true;
     }
@@ -313,22 +409,75 @@ export class Player {
       name: this.name,
       isBystander: this.isBystander,
       velocity: this.velocity,
-      position: new Vector2(this.x, this.y),
+      position: { x: this.x, y: this.y },
       isOnGround: this.isOnGround,
       tick: latestProcessedTick,
-      vx: this.velocity.x,
-      vy: this.velocity.y
+      isDisconnected: this.getIsDisconnected(),
+      isDead: this.isDead,
+      kills: this.kills,
+      deaths: this.deaths
     }
   }
 
-  public getLatestState(): PlayerState | null {
-    return this.lastKnownState;
+  public getLatestState(): PlayerState {
+    const state: PlayerState = {
+      id: this.id,
+      position: { x: this.x, y: this.y },
+      hp: this.hp,
+      isBystander: this.isBystander,
+      name: this.name,
+      velocity: { x: this.velocity.x, y: this.velocity.y },
+      isOnGround: this.isOnGround,
+      tick: this.lastProcessedInput?.tick || 0,
+      isDisconnected: this.isDisconnected,
+      isDead: this.isDead,
+      kills: this.kills,
+      deaths: this.deaths
+    };
+    
+    this.lastKnownState = { ...state };
+    return state;
   }
 
+  public getLatestStateDelta(): PlayerStateBroadcast {
+    const currentState = this.getLatestState();
+    
+    // Always include position, velocity, id, and tick
+    const delta: PlayerStateBroadcast = {
+      id: this.id,
+      x: currentState.position.x,
+      y: currentState.position.y,
+      vx: currentState.velocity.x,
+      vy: currentState.velocity.y,
+      tick: currentState.tick
+    };
 
-  public getInputQueueLength(): number {
-    return this.inputQueue.length;
+    // Only include changed fields (or if no previous broadcast state exists)
+    if (!this.lastBroadcastState || this.lastBroadcastState.hp !== currentState.hp) {
+      delta.hp = currentState.hp;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.isBystander !== currentState.isBystander) {
+      delta.by = currentState.isBystander;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.name !== currentState.name) {
+      delta.name = currentState.name;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.isDead !== currentState.isDead) {
+      delta.isDead = currentState.isDead;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.kills !== currentState.kills) {
+      delta.kills = currentState.kills;
+    }
+    if (!this.lastBroadcastState || this.lastBroadcastState.deaths !== currentState.deaths) {
+      delta.deaths = currentState.deaths;
+    }
+
+    // Update last broadcast state
+    this.lastBroadcastState = { ...currentState };
+    
+    return delta;
   }
+
 
   public dequeueInput(): InputPayload | undefined {
     if (this.inputQueue.length === 0) {
@@ -345,5 +494,23 @@ export class Player {
 
   public isShootingActive(): boolean {
     return this.isShooting;
+  }
+
+  public getIsDisconnected(): boolean {
+    return this.isDisconnected;
+  }
+
+  public setDisconnected(value: boolean): void {
+    this.isDisconnected = value;
+  }
+
+  public destroy(): void {
+    // Clean up resources, listeners, etc.
+    if (this.afkRemoveTimer) {
+      clearTimeout(this.afkRemoveTimer);
+    } 
+    this.inputQueue = [];
+    this.InputDebt = [];
+    logger.info(`Destroyed player ${this.name} (UUID: ${this.id}) and cleaned up resources.`);
   }
 }

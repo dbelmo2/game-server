@@ -1,4 +1,4 @@
-{  
+{
   "name": "game-server",
   "description": "",
   "version": "1.0.0",
@@ -24,6 +24,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.1.0",
+    "mongoose": "^9.0.0",
     "nodemon": "^3.1.10",
     "socket.io": "^4.8.1",
     "winston": "^3.17.0"

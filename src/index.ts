@@ -13,6 +13,16 @@ import { rateLimiter } from './api/middleware/rateLimit';
 import { config } from './config/config';
 import routes from './api/routes/index';
 import connectionHandler from './sockets/handlers/Connection';
+import connectDatabase from './config/database';
+
+connectDatabase();
+
+const parseAllowedOrigins = (originsString: string): string[] | string => {
+  if (originsString === '*') return '*';
+  return originsString.split(',').map(origin => origin.trim()).filter(origin => origin.length > 0);
+};
+
+const allowedOrigins = parseAllowedOrigins(config.CORS_ALLOWED_ORIGINS);
 
 
 const app = express();
@@ -23,12 +33,17 @@ const io = new SocketIOServer(server, {
     origin: config.CLIENT_URL || '*',
     methods: ['GET', 'POST']
   },
-  transports: ['websocket', 'polling'],
+  transports: ['websocket'],
+  perMessageDeflate: {
+    threshold: 1024 // Only compress messages larger than 1KB
+  },
   pingTimeout: 30000
 });
 
 app.set('trust proxy', 1);
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+}));
 app.use(helmet());
 app.use(express.json());
 app.use(express.text({ type: 'application/atom+xml' }));
@@ -41,7 +56,7 @@ app.use('/api', (req, res, next) => {
 
 app.use('/api', routes);
 
-io.on('connection', connectionHandler);
+io.on('connection', (socket) => connectionHandler(socket, io));
 
 const PORT = config.PORT;
 server.listen(PORT, () => {
