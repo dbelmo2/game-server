@@ -13,6 +13,9 @@ import { rateLimiter } from './api/middleware/rateLimit';
 import { config } from './config/config';
 import routes from './api/routes/index';
 import connectionHandler from './sockets/handlers/Connection';
+import connectDatabase from './config/database';
+
+connectDatabase();
 
 const parseAllowedOrigins = (originsString: string): string[] | string => {
   if (originsString === '*') return '*';

@@ -26,7 +26,7 @@ export default function connectionHandler(
           socket,
           region: region as Region,
           enqueuedAt: Date.now()
-        });
+        }, io);
       } else {
         socket.emit('error', { message: 'Invalid region' });
         socket.disconnect(true);

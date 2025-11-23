@@ -24,6 +24,7 @@ class Matchmaker {
   private disconnectedPlayers: Map<string, { matchId: string }>;
   private lastBroadcast: number = Date.now();
   private showisLive: boolean = false;
+
   // Metrics Manager
   private metricsManager: MetricsManager;
   
@@ -52,21 +53,29 @@ class Matchmaker {
 
 
 
+
+
   public setShowIsLive(show: boolean) {
     this.showisLive = show;
   }
 
-  public enqueuePlayer(player: QueuedPlayer) {
+  public recordNewRound() {
+    this.metricsManager.recordNewRound();
+  }
+
+  public enqueuePlayer(player: QueuedPlayer, io: any): void {
     try {
       // Record connection metric
-      this.metricsManager.recordConnection();
       
       const { match, disconnectedPlayer } = this.findMatchInRegion(player.region, player.playerMatchId);
       if (match) {
+        let uniquePlayerId = '';
         if (!disconnectedPlayer) {
           logger.info(`Adding player with socket ${player.socket.id} to existing match ${match.getId()} in region ${player.region}`);
           // New player joining existing match
           const playerMatchId = match.addPlayer(player.socket, player.name);
+          uniquePlayerId = playerMatchId;
+
           player.socket.emit('matchFound', { 
             matchId: match.getId(), 
             region: player.region,
@@ -79,6 +88,7 @@ class Matchmaker {
             throw new Error(`playerMatchID is required for rejoining a match`);
           }
           this.metricsManager.recordReconnect();
+          uniquePlayerId = player.playerMatchId;
           match.rejoinPlayer(player.socket, player.playerMatchId);
           player.socket.emit('rejoinedMatch', { 
             matchId: match.getId(), 
@@ -87,6 +97,9 @@ class Matchmaker {
           
           this.removeDisconnectedPlayer(player.playerMatchId);
         }
+
+        this.metricsManager.recordConnection(uniquePlayerId);
+
         player.socket.join(match.getId());
 
       } else {
@@ -99,8 +112,11 @@ class Matchmaker {
           matchId, 
           this.setDisconnectedPlayer.bind(this),
           this.removeDisconnectedPlayer.bind(this),
+          io, 
+          this.recordNewRound.bind(this)
         );
         this.matches.set(matchId, newMatch);
+        this.metricsManager.setTotalMatches(this.matches.size);
         player.socket.join(matchId);
         player.socket.emit('matchFound', { 
           matchId, 
@@ -119,7 +135,6 @@ class Matchmaker {
   }
 
   private setDisconnectedPlayer(playerMatchId: string, matchId: string,) {
-    this.metricsManager.recordTemporaryDisconnect();
     this.disconnectedPlayers.set(playerMatchId, { matchId });
     logger.info(`Player ${playerMatchId} disconnected from match ${matchId}`);
   }
@@ -150,9 +165,6 @@ class Matchmaker {
     if (now - this.lastBroadcast >= FRAME_MS) {
       try {
         // Update server state metrics before processing
-        const totalPlayers = Array.from(this.matches.values())
-          .reduce((sum, match) => sum + match.getNumberOfPlayers(), 0);
-        this.metricsManager.updateServerState(this.matches.size, totalPlayers);
 
         // Update & broadcast at 30Hz
         this.matches.forEach(match => {
@@ -208,6 +220,7 @@ class Matchmaker {
     
     // Remove from map first to prevent recursion
     this.matches.delete(matchId);
+    this.metricsManager.setTotalMatches(this.matches.size);
     
     // Then clean up resources
     match.cleanUpSession();
@@ -240,31 +253,7 @@ class Matchmaker {
     return `match-${Math.random().toString(36).substring(2, 8)}`;
   }
 
-  // ==================== Metrics API ====================
   
-  /**
-   * Get current metrics snapshot
-   * Useful for health check endpoints or admin dashboards
-   */
-  public getMetrics() {
-    return this.metricsManager.getMetrics();
-  }
-
-  /**
-   * Get metrics in Prometheus format
-   * Useful for external monitoring tools
-   */
-  public getPrometheusMetrics(): string {
-    return this.metricsManager.getPrometheusMetrics();
-  }
-
-  /**
-   * Force an immediate metrics log
-   * Useful for debugging or before shutdown
-   */
-  public forceMetricsLog(): void {
-    this.metricsManager.forceLog();
-  }
 
   /**
    * Graceful shutdown

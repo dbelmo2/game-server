@@ -5,4 +5,5 @@ export const config = {
     NODE_ENV: process.env.NODE_ENV || 'development',
     VALID_REGIONS: process.env.VALID_REGIONS ? process.env.VALID_REGIONS.split(',') : ['NA', 'EU', 'ASIA', 'GLOBAL'],
     CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || '*',
+    MONGO_URI: process.env.MONGO_URI || 'mongodb://localhost:27017/game-server',
 }

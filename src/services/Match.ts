@@ -56,7 +56,7 @@ const MAX_KILL_AMOUNT = 4; // Adjust this value as needed
 
 // 2. Score display not centered when dev tools open
 // 4. daily metrics in db?
-// 5. if a player disconnects right as they respawn, they remain suspended in the air for other players
+// 5. allow falling through platforms when holding down
 // -----------
 // TODO: Fix issue where, the jump command arrives while the server position is still in the air,
 // but the client is on the ground. In this situation, the server and the client are synced up to a tick before the jump arrives,
@@ -134,7 +134,8 @@ export class Match {
   private accumulator: number = 0;
   private shouldRemove = false;
   private serverTick = 0;
-
+  private onNewRoundCallback?: () => void;
+  private io: any; // Socket.IO server instance
 
   constructor(
     firstPlayerSocket: Socket,
@@ -143,7 +144,8 @@ export class Match {
     id = `match-${Math.random().toString(36).substring(2, 8)}`,
     private setDisconnectedPlayerCallback: (playerId: string, matchId: string, timeoutId: NodeJS.Timeout) => void,
     private removeDisconnectedPlayerCallback: (playerId: string) => void,
-    private io?: any // Socket.IO server instance
+    io: any, // Socket.IO server instance
+    onNewRound?: () => void
   ) {
     this.id = id;
     this.region = region;
@@ -151,6 +153,8 @@ export class Match {
     this.addPlayer(firstPlayerSocket, firstPlayerName);
     this.isReady = true;
     this.matchIsActive = true;
+    this.io = io;
+    this.onNewRoundCallback = onNewRound;
 
     logger.info(`Match ${this.id} created in region ${region} with first player ${firstPlayerName}`);
     // Start game loop loop (this will broadcast the game state to all players)
@@ -898,7 +902,7 @@ export class Match {
     }
 
     this.matchIsActive = true;
-
+    if (this.onNewRoundCallback) this.onNewRoundCallback();
   }
 
   private handleError(error: Error, context: string): void {
