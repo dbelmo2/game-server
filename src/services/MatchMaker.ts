@@ -24,7 +24,6 @@ class Matchmaker {
   private disconnectedPlayers: Map<string, { matchId: string }>;
   private lastBroadcast: number = Date.now();
   private showisLive: boolean = false;
-
   // Metrics Manager
   private metricsManager: MetricsManager;
   
@@ -53,8 +52,6 @@ class Matchmaker {
 
 
 
-
-
   public setShowIsLive(show: boolean) {
     this.showisLive = show;
   }
@@ -62,7 +59,6 @@ class Matchmaker {
   public recordNewRound() {
     this.metricsManager.recordNewRound();
   }
-
   public enqueuePlayer(player: QueuedPlayer, io: any): void {
     try {
       // Record connection metric
