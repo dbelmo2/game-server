@@ -31,6 +31,7 @@ const DailyMetricsSchema: Schema = new Schema({
     type: String,
     required: true,
     unique: true,
+    index: true,
     match: /^\d{4}-\d{2}-\d{2}$/
   },
   
@@ -104,8 +105,5 @@ const DailyMetricsSchema: Schema = new Schema({
 }, {
   timestamps: true
 });
-
-// Create compound index for efficient date queries
-DailyMetricsSchema.index({ date: 1 });
 
 export const DailyMetricsModel = mongoose.model<IDailyMetrics>('DailyMetrics', DailyMetricsSchema);
