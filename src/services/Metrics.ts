@@ -233,7 +233,6 @@ export class MetricsManager {
    * Record a player connection with player ID for daily tracking
    */
   public recordConnection(playerId: string): void {
-    console.log('recording connection');
     this.metrics.totalPlayers++;
     if (this.metrics.totalPlayers > this.dailyCollector.peakConcurrentPlayers) {
         this.dailyCollector.peakConcurrentPlayers = this.metrics.totalPlayers;
@@ -257,7 +256,6 @@ export class MetricsManager {
    * Record a player reconnection
    */
   public recordReconnect(): void {
-    console.log('recording reconnect');
     this.metrics.totalPlayers++;
     if (this.metrics.totalPlayers > this.dailyCollector.peakConcurrentPlayers) {
         this.dailyCollector.peakConcurrentPlayers = this.metrics.totalPlayers;
