@@ -783,10 +783,8 @@ export class Match {
       const { x, y, id } = inputPayload.vector.mouse;
 
       if (player.getIsBystander()) {
-        logger.warn(`Bystander ${player.getName()} (${player.getId()}) attempted to shoot in match ${this.id}`);
         return;
       }      
-      logger.info(`Player ${player.getName()} (${player.getId()}) fired projectile ${id} in match ${this.id}`);
 
       const velocity = Projectile.calculateVelocity(player.getX(), player.getY() - 50, x, y);
       const projectileUpdate = {
