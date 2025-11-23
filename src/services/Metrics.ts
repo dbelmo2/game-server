@@ -233,6 +233,7 @@ export class MetricsManager {
    * Record a player connection with player ID for daily tracking
    */
   public recordConnection(playerId: string): void {
+    console.log('recording connection');
     this.metrics.totalPlayers++;
     if (this.metrics.totalPlayers > this.dailyCollector.peakConcurrentPlayers) {
         this.dailyCollector.peakConcurrentPlayers = this.metrics.totalPlayers;
@@ -256,6 +257,7 @@ export class MetricsManager {
    * Record a player reconnection
    */
   public recordReconnect(): void {
+    console.log('recording reconnect');
     this.metrics.totalPlayers++;
     if (this.metrics.totalPlayers > this.dailyCollector.peakConcurrentPlayers) {
         this.dailyCollector.peakConcurrentPlayers = this.metrics.totalPlayers;
@@ -376,7 +378,7 @@ export class MetricsManager {
     logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
     logger.info(`🎮 Server Health:`);
-    logger.info(`  Total Players: ${this.metrics.totalPlayers} | Matches: ${this.metrics.totalMatches} | Players: ${this.metrics.totalPlayers}`);
+    logger.info(`    Matches: ${this.metrics.totalMatches} | Players: ${this.metrics.totalPlayers}`);
     logger.info(`⚡ Performance:`);
     logger.info(`   Loop Time: avg=${this.metrics.avgLoopTimeMs.toFixed(2)}ms max=${this.metrics.maxLoopTimeMs.toFixed(2)}ms`);
     logger.info(`   Loop Rate: ${this.metrics.loopsPerSecond.toFixed(1)}/sec (target: ${this.thresholds.targetLoopsPerSecond}/sec)`);

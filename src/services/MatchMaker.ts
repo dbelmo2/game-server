@@ -59,6 +59,7 @@ class Matchmaker {
   public recordNewRound() {
     this.metricsManager.recordNewRound();
   }
+
   public enqueuePlayer(player: QueuedPlayer, io: any): void {
     try {
       // Record connection metric
@@ -77,6 +78,8 @@ class Matchmaker {
             region: player.region,
             playerId: playerMatchId,
           });
+
+          this.metricsManager.recordConnection(playerMatchId);
         } else {
           logger.info(`Rejoining disconnected player ${player.playerMatchId} to match ${match.getId()} in region ${player.region}`);
           // Rejoining disconnected player
@@ -93,9 +96,6 @@ class Matchmaker {
           
           this.removeDisconnectedPlayer(player.playerMatchId);
         }
-
-        this.metricsManager.recordConnection(uniquePlayerId);
-
         player.socket.join(match.getId());
 
       } else {
@@ -112,14 +112,17 @@ class Matchmaker {
           this.recordNewRound.bind(this)
         );
         this.matches.set(matchId, newMatch);
-        this.metricsManager.setTotalMatches(this.matches.size);
         player.socket.join(matchId);
         player.socket.emit('matchFound', { 
           matchId, 
           region: player.region,
           playerId: newMatch.getPlayerIdFromSocketId(player.socket.id),
         });
+        this.metricsManager.recordConnection(newMatch.getPlayerIdFromSocketId(player.socket.id) ?? '');
+
       }
+      
+      this.metricsManager.setTotalMatches(this.matches.size);
     } catch (error) {
       // Record error metric
       this.metricsManager.recordError();
