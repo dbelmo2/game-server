@@ -134,13 +134,12 @@ class Matchmaker {
   }
 
   private setDisconnectedPlayer(playerMatchId: string, matchId: string,) {
+    this.metricsManager.recordDisconnect();
     this.disconnectedPlayers.set(playerMatchId, { matchId });
     logger.info(`Player ${playerMatchId} disconnected from match ${matchId}`);
   }
 
   private removeDisconnectedPlayer(playerMatchId: string) {
-    // Record disconnect metric
-    this.metricsManager.recordDisconnect();
     
     if (this.disconnectedPlayers.has(playerMatchId)) {
       this.disconnectedPlayers.delete(playerMatchId);
