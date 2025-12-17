@@ -53,7 +53,9 @@ const MAX_KILL_AMOUNT = 4; // Adjust this value as needed
 
 
 // CRITICAL BUG:
-
+// 1.On client, we get an undefined error trying to access .position...
+// 2. Some enemies are spawning without tomatoes... they might also be unable to shoot?
+// 3. Try to handle issue of enemies appearing with 0 health but alive?
 // 2. Score display not centered when dev tools open
 // 4. daily metrics in db?
 // 5. allow falling through platforms when holding down
