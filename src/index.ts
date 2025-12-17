@@ -59,6 +59,6 @@ app.use('/api', routes);
 io.on('connection', (socket) => connectionHandler(socket, io));
 
 const PORT = config.PORT;
-server.listen(PORT, () => {
+server.listen(PORT, '::', () => {
   logger.info(`Server is running on port ${PORT}`);
 });
