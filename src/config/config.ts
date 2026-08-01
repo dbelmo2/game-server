@@ -6,4 +6,8 @@ export const config = {
     VALID_REGIONS: process.env.VALID_REGIONS ? process.env.VALID_REGIONS.split(',') : ['NA', 'EU', 'ASIA', 'GLOBAL'],
     CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || '*',
     MONGO_URI: process.env.MONGO_URI || 'mongodb://localhost:27017/game-server',
+    // Shared identically with yt-stats-service via Railway env vars. Verifies the optional
+    // handshake.auth.token a logged-in browser sends; guests never send one and are unaffected.
+    GAME_TOKEN_SECRET: process.env.GAME_TOKEN_SECRET || '',
+    GAME_TOKEN_VERIFICATION_ENABLED: process.env.GAME_TOKEN_VERIFICATION_ENABLED !== 'false',
 }
